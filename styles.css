@@ -1,0 +1,145 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Arial', sans-serif;
+    background: linear-gradient(135deg, #2c3e50, #34495e);
+    color: white;
+    overflow: hidden;
+}
+
+#game-container {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+}
+
+#ui-panel {
+    width: 300px;
+    background: rgba(0, 0, 0, 0.8);
+    padding: 20px;
+    border-right: 2px solid #3498db;
+    overflow-y: auto;
+}
+
+#ui-panel h2 {
+    color: #3498db;
+    margin-bottom: 20px;
+    text-align: center;
+    font-size: 1.5em;
+}
+
+.control-group {
+    margin-bottom: 15px;
+}
+
+.control-group label {
+    display: block;
+    margin-bottom: 5px;
+    color: #ecf0f1;
+    font-weight: bold;
+}
+
+.control-group input[type="range"] {
+    width: 100%;
+    margin-bottom: 5px;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 6px;
+    border-radius: 3px;
+    background: #34495e;
+    outline: none;
+}
+
+.control-group input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #3498db;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.control-group input[type="range"]::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #3498db;
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.control-group span {
+    color: #3498db;
+    font-weight: bold;
+    float: right;
+}
+
+.stats {
+    margin-top: 20px;
+    padding: 15px;
+    background: rgba(52, 73, 94, 0.5);
+    border-radius: 8px;
+    border: 1px solid #3498db;
+}
+
+.stats div {
+    margin-bottom: 8px;
+    color: #ecf0f1;
+}
+
+.stats span {
+    color: #e74c3c;
+    font-weight: bold;
+}
+
+#reset-btn {
+    width: 100%;
+    padding: 12px;
+    background: linear-gradient(45deg, #e74c3c, #c0392b);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    margin-top: 20px;
+    transition: all 0.3s ease;
+}
+
+#reset-btn:hover {
+    background: linear-gradient(45deg, #c0392b, #a93226);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+#game-canvas {
+    flex: 1;
+    background: #1a252f;
+    position: relative;
+}
+
+/* Scrollbar styling */
+#ui-panel::-webkit-scrollbar {
+    width: 8px;
+}
+
+#ui-panel::-webkit-scrollbar-track {
+    background: #34495e;
+    border-radius: 4px;
+}
+
+#ui-panel::-webkit-scrollbar-thumb {
+    background: #3498db;
+    border-radius: 4px;
+}
+
+#ui-panel::-webkit-scrollbar-thumb:hover {
+    background: #2980b9;
+}

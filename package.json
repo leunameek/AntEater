@@ -1,0 +1,16 @@
+{
+  "name": "ant-colony-simulation",
+  "version": "1.0.0",
+  "description": "An ant colony simulation built with Phaser.js",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx http-server -p 8080",
+    "dev": "npx http-server -p 8080 -o"
+  },
+  "keywords": ["phaser", "simulation", "ants", "colony", "game"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}

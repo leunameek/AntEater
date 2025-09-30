@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AntEater</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+</head>
+<body>
+    <div id="menu" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #1a252f; color: white; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 1000;">
+        <h1 style="font-size: 48px; margin-bottom: 50px;">AntEater</h1>
+
+        <div style="margin-bottom: 30px;">
+            <label for="menu-ant-count" style="font-size: 24px; margin-right: 20px;">Initial Ant Count:</label>
+            <input type="range" id="menu-ant-count" min="10" max="200" value="50" style="width: 300px;">
+            <span id="menu-ant-count-value" style="font-size: 24px; margin-left: 10px;">50</span>
+        </div>
+
+        <button id="start-btn" style="font-size: 24px; padding: 15px 30px; background: #4CAF50; color: white; border: none; border-radius: 8px; cursor: pointer;">Start Simulation</button>
+
+        <p style="margin-top: 50px; font-size: 16px; text-align: center; max-width: 600px;">
+            Use mouse to select ants and view their stats<br>
+            Click "Add Food" button to spawn random food sources
+        </p>
+    </div>
+
+    <div id="game-container" style="display: none;">
+        <div id="ui-panel">
+            <h2>AntEater</h2>
+            <div class="control-group">
+                <label for="food-count">Recursos de Comida:</label>
+                <input type="range" id="food-count" min="1" max="10" value="3">
+                <span id="food-count-value">3</span>
+            </div>
+            <div class="control-group">
+                <label for="pheromone-decay">Desvanecimiento de Feromonas:</label>
+                <input type="range" id="pheromone-decay" min="0.001" max="0.01" step="0.001" value="0.005">
+                <span id="pheromone-decay-value">0.005</span>
+            </div>
+            <div class="control-group">
+                <label for="simulation-speed">Velocidad:</label>
+                <input type="range" id="simulation-speed" min="0.5" max="3" step="0.1" value="1">
+                <span id="simulation-speed-value">1.0</span>
+            </div>
+            <div class="stats">
+                <div>Comida Recolectada: <span id="food-collected">0</span></div>
+                <div>Hormigas Activas: <span id="active-ants">0</span></div>
+                <div>Intensidad de Feromonas: <span id="pheromone-intensity">0</span></div>
+                <div>Población: <span id="population">0</span></div>
+                <div>Almacén de Comida: <span id="food-storage">0</span></div>
+                <div>Fuentes de Comida: <span id="food-sources">0</span></div>
+                <div>Hormigas Totales: <span id="total-ants">0</span></div>
+                <div>Generación: <span id="generation">1</span></div>
+                <div>Eficiencia: <span id="efficiency">100%</span></div>
+            </div>
+
+            <div class="ant-stats" id="ant-stats" style="display: none; margin-top: 20px; padding: 15px; background: rgba(52, 73, 94, 0.5); border-radius: 8px; border: 1px solid #3498db;">
+                <h3 style="color: #3498db; margin-bottom: 10px;">Selected Ant</h3>
+                <div id="ant-id">ID: None</div>
+                <div id="ant-role">Role: None</div>
+                <div id="ant-health">Health: 100%</div>
+                <div id="ant-status">Status: Healthy</div>
+                <div id="ant-energy">Energy: 100</div>
+                <div id="ant-food-collected">Food Collected: 0</div>
+                <div id="ant-fed-brood">Fed Brood: No</div>
+                <div id="ant-lifespan">Lifespan: 0s</div>
+                <div id="ant-corpses-collected">Corpses Collected: 0</div>
+            </div>
+            <button id="pause-btn" style="width: 100%; padding: 8px; background: #f39c12; color: white; border: 1px solid #e67e22; border-radius: 4px; margin-top: 10px; cursor: pointer;">Pause Game</button>
+            <button id="add-food-btn" style="width: 100%; padding: 8px; background: #e74c3c; color: white; border: 1px solid #c0392b; border-radius: 4px; margin-top: 10px; cursor: pointer;">Add Random Food</button>
+            <button id="reset-btn">Restablecer Colonia</button>
+            <button id="clear-selection" style="width: 100%; padding: 8px; background: #34495e; color: white; border: 1px solid #3498db; border-radius: 4px; margin-top: 5px; cursor: pointer;">Clear Selection</button>
+        </div>
+        <div id="game-canvas"></div>
+    </div>
+    <script src="js/ant.js"></script>
+    <script src="js/food.js"></script>
+    <script src="js/pheromone.js"></script>
+    <script src="js/colony.js"></script>
+    <script src="js/termite.js"></script>
+    <script src="js/game.js"></script>
+    <script>
+        // Menu logic
+        const menuAntCountSlider = document.getElementById('menu-ant-count');
+        const menuAntCountValue = document.getElementById('menu-ant-count-value');
+        const startBtn = document.getElementById('start-btn');
+        const menu = document.getElementById('menu');
+        const gameContainer = document.getElementById('game-container');
+
+        // Update ant count display
+        menuAntCountSlider.addEventListener('input', function() {
+            menuAntCountValue.textContent = this.value;
+        });
+
+        // Start game
+        startBtn.addEventListener('click', function() {
+            const initialAntCount = parseInt(menuAntCountSlider.value);
+            menu.style.display = 'none';
+            gameContainer.style.display = 'flex';
+            startGame(initialAntCount);
+        });
+
+        // Function to start the Phaser game
+        function startGame(initialAntCount) {
+            // Game configuration
+            const config = {
+                type: Phaser.AUTO,
+                width: window.innerWidth - 300, // Account for UI panel
+                height: window.innerHeight,
+                parent: 'game-canvas',
+                backgroundColor: '#1a252f',
+                physics: {
+                    default: 'arcade',
+                    arcade: {
+                        gravity: { y: 0 },
+                        debug: false
+                    }
+                },
+                scene: AntColonyGame
+            };
+
+            // Initialize the game
+            const game = new Phaser.Game(config);
+            window.game = game;
+
+            // Store initial ant count for the scene
+            window.initialAntCount = initialAntCount;
+
+            // Handle window resize
+            window.addEventListener('resize', () => {
+                game.scale.resize(window.innerWidth - 300, window.innerHeight);
+            });
+
+            // Add console commands
+            window.addFood = (x, y, amount = 100) => {
+                if (window.game && window.game.scene && window.game.scene.scenes[0] && window.game.scene.scenes[0].foodManager) {
+                    window.game.scene.scenes[0].foodManager.createFoodSource(x, y, amount);
+                }
+            };
+
+            window.addObstacle = (x, y, w, h) => {
+                if (window.game && window.game.scene && window.game.scene.scenes[0]) {
+                    window.game.scene.scenes[0].addObstacle(x, y, w, h);
+                }
+            };
+
+            console.log('Ant Colony Simulation loaded!');
+            console.log('Commands available:');
+            console.log('- addFood(x, y, amount) - Add food source');
+            console.log('- addObstacle(x, y, width, height) - Add obstacle');
+            console.log('- Click to add food, Right-click to add pheromones');
+            console.log('- Space to pause, R to reset, F to add food at cursor');
+        }
+    </script>
+</body>
+</html>
