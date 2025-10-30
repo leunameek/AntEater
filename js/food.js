@@ -86,29 +86,55 @@ class FoodSource {
     collect(amount) {
         const collected = Math.min(amount, this.amount);
         this.amount -= collected;
-        
+
+        // Set a timer for destruction if this is the last bit of food
         if (this.amount <= 0) {
             this.deplete();
         } else {
             this.updateVisual();
+            // If only a tiny amount remains, start destruction timer
+            if (this.amount <= 1) {
+                this.startDestructionTimer();
+            }
         }
-        
+
         return collected;
+    }
+
+    startDestructionTimer() {
+        // If not already set, start a timer to destroy remaining food
+        if (!this.destructionTimer) {
+            this.destructionTimer = this.scene.time.delayedCall(5000, () => { // 5 seconds
+                if (this.amount > 0 && this.amount <= 1) {
+                    this.forceDeplete();
+                }
+            });
+        }
+    }
+
+    forceDeplete() {
+        this.amount = 0;
+        this.deplete();
     }
     
     deplete() {
         this.active = false;
-        this.pulseTween.stop();
-        
+        if (this.pulseTween) {
+            this.pulseTween.stop();
+        }
+        if (this.destructionTimer) {
+            this.destructionTimer.destroy();
+        }
+
         // Create depletion effect
         const depletionEffect = this.scene.add.circle(
-            this.x, 
-            this.y, 
-            20, 
-            0x8B0000, 
+            this.x,
+            this.y,
+            20,
+            0x8B0000,
             0.5
         );
-        
+
         this.scene.tweens.add({
             targets: depletionEffect,
             alpha: 0,

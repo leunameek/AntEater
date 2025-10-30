@@ -5,10 +5,21 @@ class Ant {
         this.role = role || 'worker';
         this.id = colony.totalAntsBorn + 1; // Unique ID
 
-        // Create temporal ant sprite
-        this.sprite = scene.add.circle(x, y, 16, 0xFF4500);
-        this.sprite.setStrokeStyle(2, 0xFFFFFF);
+        // Create ant sprite using the sprite sheet
+        this.sprite = scene.add.sprite(x, y, 'ant_sprites', 'H00.png');
+        this.sprite.setScale(0.3); // Adjusted scale for 128x128 sprites
         scene.physics.add.existing(this.sprite);
+
+        // Create ID text above the ant
+        this.idText = scene.add.text(x, y - 15, this.id.toString(), {
+            fontFamily: 'Jersey 10',
+            fontSize: '12px',
+            color: '#ffffff',
+            stroke: '#000000',
+            strokeThickness: 2
+        });
+        this.idText.setOrigin(0.5, 0.5);
+        this.idText.setDepth(5); // Above the ant sprite
 
         // Physics properties
         this.sprite.body.setCollideWorldBounds(true);
@@ -28,6 +39,11 @@ class Ant {
         this.fedBrood = false;
         this.lifespan = 0;
         this.corpsesCollected = 0;
+
+        // Puddle damage tracking
+        this.inPuddle = false;
+        this.puddleTime = 0;
+        this.puddleDamageApplied = false;
         
         // Behavior properties
         this.state = 'exploring'; // exploring, seeking_food, returning_home, following_trail, resting, feeding_brood, collecting_corpse
@@ -60,14 +76,57 @@ class Ant {
         // Trail following
         this.trailMemory = [];
         this.maxTrailMemory = 20;
+
+        // Movement trail for following
+        this.movementTrail = [];
+        this.maxMovementTrail = 50; // Store last 50 positions
+        this.trailGraphics = null;
+        this.isBeingFollowed = false;
+
+        // Animation properties
+        this.currentFrame = 0;
+        this.animationSpeed = 10; // frames per second
+        this.lastFrameChange = 0;
         
         // Set initial velocity
         this.updateMovement();
     }
     
+    createWalkingAnimation(scene) {
+        // Create walking animation frames
+        const frameNames = [];
+        for (let i = 0; i < 8; i++) {
+            frameNames.push({ key: 'ant_sprites', frame: `H${i.toString().padStart(2, '0')}.png` });
+        }
+        
+        // Create the animation
+        scene.anims.create({
+            key: 'ant_walking',
+            frames: frameNames,
+            frameRate: 10,
+            repeat: -1
+        });
+        
+        // Start with first frame
+        this.sprite.setTexture('ant_sprites', 'H00.png');
+    }
+
+    updateAnimation(time) {
+        // Simple frame cycling for walking animation
+        if (time - this.lastFrameChange > (1000 / this.animationSpeed)) {
+            this.currentFrame = (this.currentFrame + 1) % 8;
+            const frameName = `H${this.currentFrame.toString().padStart(2, '0')}.png`;
+            this.sprite.setTexture('ant_sprites', frameName);
+            this.lastFrameChange = time;
+        }
+    }
+    
     update(time, delta) {
         this.energy -= 0.1 * delta / 1000; // Energy decreases over time
         this.lifespan += delta / 1000; // Track lifespan
+
+        // Handle puddle damage
+        this.handlePuddleDamage(delta);
 
         if (this.energy <= 0) {
             this.die();
@@ -80,6 +139,9 @@ class Ant {
             if (this.restTimer <= 0) {
                 this.resting = false;
                 this.sprite.setVisible(true);
+                if (this.idText) {
+                    this.idText.setVisible(true);
+                }
                 this.state = 'exploring';
             }
             return; // Don't execute other behaviors while resting
@@ -114,6 +176,9 @@ class Ant {
             case 'collecting_corpse':
                 this.collectCorpse();
                 break;
+            case 'avoiding_danger':
+                this.avoidDangerBehavior();
+                break;
         }
 
         // Drop pheromones
@@ -124,6 +189,20 @@ class Ant {
 
         // Update visual appearance
         this.updateVisuals();
+
+        // Update sprite rotation to face movement direction
+        this.sprite.setRotation(this.direction + Math.PI / 2);
+
+        // Update animation
+        this.updateAnimation(time);
+
+        // Update movement trail
+        this.updateMovementTrail();
+
+        // Update ID text position to follow the ant
+        if (this.idText) {
+            this.idText.setPosition(this.sprite.x, this.sprite.y - 15);
+        }
     }
     
     updateState() {
@@ -166,9 +245,17 @@ class Ant {
             }
         }
 
+        // Check for danger pheromones (avoid puddles) - highest priority
+        const dangerPheromone = this.findNearbyDangerPheromone();
+        if (dangerPheromone && !this.carryingFood) {
+            // Avoid areas with danger pheromones
+            this.avoidDanger(dangerPheromone);
+            return;
+        }
+
         if (this.carryingFood) {
             this.state = 'returning_home';
-        } else if (this.target && this.target.active) {
+        } else if (this.target && this.target.active && !this.target.isDepleted()) {
             this.state = 'seeking_food';
         } else {
             // Check for nearby pheromone trails
@@ -177,7 +264,18 @@ class Ant {
                 this.state = 'following_trail';
                 this.target = nearbyTrail;
             } else {
-                this.state = 'exploring';
+                // Look for food sources if no trails found
+                const nearestFood = this.scene.foodManager.getNearestFoodSource(
+                    this.sprite.x,
+                    this.sprite.y,
+                    200 // Search radius for food
+                );
+                if (nearestFood && nearestFood.active && !nearestFood.isDepleted()) {
+                    this.setTarget(nearestFood);
+                    this.state = 'seeking_food';
+                } else {
+                    this.state = 'exploring';
+                }
             }
         }
     }
@@ -198,11 +296,11 @@ class Ant {
     }
     
     seekFood() {
-        if (this.target && this.target.active) {
+        if (this.target && this.target.active && !this.target.isDepleted()) {
             const dx = this.target.x - this.sprite.x;
             const dy = this.target.y - this.sprite.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
-            
+
             if (distance < 20) {
                 // Reached food source
                 this.collectFood(this.target);
@@ -229,7 +327,7 @@ class Ant {
     }
     
     followTrail() {
-        if (this.target && this.target.active) {
+        if (this.target && this.target.active && !this.target.isDepleted()) {
             const dx = this.target.x - this.sprite.x;
             const dy = this.target.y - this.sprite.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
@@ -244,6 +342,10 @@ class Ant {
                 this.direction = Math.atan2(dy, dx);
             }
         } else {
+            // Decrement trail length when stopping following
+            if (this.target && this.target.trailLength > 0) {
+                this.target.trailLength--;
+            }
             this.state = 'exploring';
         }
     }
@@ -291,14 +393,19 @@ class Ant {
             const collected = Math.min(this.maxFoodCarry - this.foodAmount, foodSource.amount);
             this.foodAmount += collected;
             foodSource.amount -= collected;
-            
+
             if (this.foodAmount >= this.maxFoodCarry) {
                 this.carryingFood = true;
                 this.target = null;
             }
-            
+
             // Update food source visual
             foodSource.updateVisual();
+
+            // If food source is depleted after collection, clear target
+            if (foodSource.isDepleted()) {
+                this.target = null;
+            }
         }
     }
     
@@ -331,6 +438,9 @@ class Ant {
         this.resting = true;
         this.restTimer = this.restDuration;
         this.sprite.setVisible(false);
+        if (this.idText) {
+            this.idText.setVisible(false);
+        }
         this.state = 'resting';
     }
 
@@ -379,6 +489,22 @@ class Ant {
         }
     }
 
+    avoidDangerBehavior() {
+        // Continue moving away from danger for a longer time to ensure learning
+        // After avoiding danger, check if we're still in danger
+        const dangerPheromone = this.findNearbyDangerPheromone();
+        if (!dangerPheromone) {
+            // No more danger detected, return to normal behavior
+            this.speed = 80 + Math.random() * 40; // Reset speed
+            this.state = 'exploring';
+            this.target = null;
+        } else {
+            // Still in danger, continue avoiding with increased urgency
+            this.avoidDanger(dangerPheromone);
+            // Stay in avoiding_danger state longer
+        }
+    }
+
     findNearestCorpse() {
         let nearest = null;
         let minDistance = Infinity;
@@ -419,21 +545,76 @@ class Ant {
     }
     
     findNearbyPheromoneTrail() {
-        return this.scene.pheromoneSystem.findStrongestPheromone(
-            this.sprite.x, 
-            this.sprite.y, 
-            50, 
+        const trail = this.scene.pheromoneSystem.findStrongestPheromone(
+            this.sprite.x,
+            this.sprite.y,
+            100, // Increased from 50 to 100 for better detection
             'food_trail'
         );
+
+        // Check if the trail leads to an active food source
+        if (trail) {
+            const foodSource = this.scene.foodManager.getNearestFoodSource(trail.x, trail.y, 30); // Increased search radius
+            if (!foodSource || foodSource.isDepleted()) {
+                return null; // Don't follow trail to depleted food
+            }
+            // Increment trail length when an ant starts following
+            trail.trailLength = (trail.trailLength || 0) + 1;
+        }
+
+        return trail;
     }
     
     findNextTrailPoint() {
+        const trail = this.scene.pheromoneSystem.findStrongestPheromone(
+            this.sprite.x,
+            this.sprite.y,
+            60, // Increased from 30 to 60 for better trail continuity
+            'food_trail'
+        );
+
+        // Check if the trail leads to an active food source
+        if (trail) {
+            const foodSource = this.scene.foodManager.getNearestFoodSource(trail.x, trail.y, 30); // Increased search radius
+            if (!foodSource || foodSource.isDepleted()) {
+                return null; // Don't follow trail to depleted food
+            }
+        }
+
+        return trail;
+    }
+
+    findNearbyDangerPheromone() {
+        // Look for danger pheromones in a wider radius than food pheromones
+        // Increase detection range to ensure ants learn from deaths
         return this.scene.pheromoneSystem.findStrongestPheromone(
             this.sprite.x,
             this.sprite.y,
-            30,
-            'food_trail'
+            80, // Increased from 60 to 80 for better learning
+            'danger'
         );
+    }
+
+    avoidDanger(dangerPheromone) {
+        if (!dangerPheromone) return;
+
+        // Move away from the danger pheromone
+        const dx = this.sprite.x - dangerPheromone.x;
+        const dy = this.sprite.y - dangerPheromone.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance > 0) {
+            // Set direction away from danger with some randomness to avoid clustering
+            const randomAngle = (Math.random() - 0.5) * Math.PI * 0.5; // ±45 degrees randomness
+            this.direction = Math.atan2(dy, dx) + randomAngle;
+
+            // Move faster when avoiding danger
+            this.speed = Math.min(this.speed * 1.8, 140); // Increased speed boost
+
+            // Clear any current target
+            this.target = null;
+            this.state = 'avoiding_danger';
+        }
     }
 
     findNearestTermite() {
@@ -479,19 +660,21 @@ class Ant {
     }
     
     updateVisuals() {
-        // Change color based on state
+        // Change tint based on state (since we're using a sprite now, not a circle)
         if (this.scene.attackActive && this.role === 'soldier') {
-            this.sprite.setFillStyle(0xDC143C); // Crimson red for soldiers during attack
+            this.sprite.setTint(0xDC143C); // Crimson red for soldiers during attack
         } else if (this.carryingFood) {
-            this.sprite.setFillStyle(0x00FF00); // Bright green when carrying food
+            this.sprite.setTint(0x00FF00); // Bright green when carrying food
         } else if (this.state === 'seeking_food') {
-            this.sprite.setFillStyle(0xFF8C00); // Bright orange when seeking food
+            this.sprite.setTint(0xFF8C00); // Bright orange when seeking food
         } else if (this.state === 'returning_home') {
-            this.sprite.setFillStyle(0x4169E1); // Royal blue when returning home
+            this.sprite.setTint(0x4169E1); // Royal blue when returning home
         } else if (this.state === 'hiding') {
-            this.sprite.setFillStyle(0x808080); // Gray when hiding
+            this.sprite.setTint(0x808080); // Gray when hiding
+        } else if (this.state === 'avoiding_danger') {
+            this.sprite.setTint(0xFF0000); // Red when avoiding danger
         } else {
-            this.sprite.setFillStyle(0xFF4500); // Orange red when exploring
+            this.sprite.clearTint(); // Default color when exploring
         }
 
         // Add a small trail effect
@@ -504,10 +687,10 @@ class Ant {
             this.sprite.x,
             this.sprite.y,
             2,
-            this.sprite.fillColor,
+            0xFFFFFF,
             0.5
         );
-        
+
         this.scene.tweens.add({
             targets: trail,
             alpha: 0,
@@ -516,6 +699,73 @@ class Ant {
             duration: 500,
             onComplete: () => trail.destroy()
         });
+    }
+
+    updateMovementTrail() {
+        // Add current position to trail
+        this.movementTrail.push({
+            x: this.sprite.x,
+            y: this.sprite.y,
+            timestamp: Date.now()
+        });
+
+        // Keep only recent positions
+        if (this.movementTrail.length > this.maxMovementTrail) {
+            this.movementTrail.shift();
+        }
+
+        // Update trail graphics if being followed
+        if (this.isBeingFollowed) {
+            this.updateTrailGraphics();
+        }
+    }
+
+    updateTrailGraphics() {
+        // Clear existing graphics
+        if (this.trailGraphics) {
+            this.trailGraphics.clear();
+        } else {
+            this.trailGraphics = this.scene.add.graphics();
+            this.trailGraphics.setDepth(1); // Above terrain, below ants
+        }
+
+        // Draw trail line
+        this.trailGraphics.lineStyle(3, 0xFFFF00, 0.8); // Yellow trail
+        this.trailGraphics.beginPath();
+
+        for (let i = 1; i < this.movementTrail.length; i++) {
+            const current = this.movementTrail[i];
+            const previous = this.movementTrail[i - 1];
+
+            if (i === 1) {
+                this.trailGraphics.moveTo(previous.x, previous.y);
+            }
+            this.trailGraphics.lineTo(current.x, current.y);
+        }
+
+        this.trailGraphics.strokePath();
+    }
+
+    startFollowing() {
+        this.isBeingFollowed = true;
+        this.updateTrailGraphics();
+        console.log(`Started following ant ${this.id}`);
+    }
+
+    stopFollowing() {
+        this.isBeingFollowed = false;
+        if (this.trailGraphics) {
+            this.trailGraphics.clear();
+        }
+        console.log(`Stopped following ant ${this.id}`);
+    }
+
+    toggleFollowing() {
+        if (this.isBeingFollowed) {
+            this.stopFollowing();
+        } else {
+            this.startFollowing();
+        }
     }
     
     die() {
@@ -549,8 +799,16 @@ class Ant {
             onComplete: () => deathEffect.destroy()
         });
 
-        // Destroy ant sprite
+        // Stop following if being followed
+        if (this.isBeingFollowed) {
+            this.stopFollowing();
+        }
+
+        // Destroy ant sprite and ID text
         this.sprite.destroy();
+        if (this.idText) {
+            this.idText.destroy();
+        }
     }
     
     // Method to set a new target (food source)
@@ -566,6 +824,42 @@ class Ant {
     // Check if ant is alive
     isAlive() {
         return this.sprite && this.sprite.active && this.energy > 0;
+    }
+
+    handlePuddleDamage(delta) {
+        // Check if ant is currently in a puddle
+        const inPuddleNow = this.scene.puddleSystem.checkAntInPuddle(this);
+
+        if (inPuddleNow) {
+            if (!this.inPuddle) {
+                // Just entered puddle
+                this.inPuddle = true;
+                this.puddleTime = 0;
+                this.puddleDamageApplied = false;
+            } else {
+                // Still in puddle, accumulate time
+                this.puddleTime += delta / 1000; // Convert to seconds
+
+                // Apply 50% health decay at 2 seconds
+                if (this.puddleTime >= 2 && !this.puddleDamageApplied) {
+                    this.energy *= 0.5; // Reduce to 50%
+                    this.puddleDamageApplied = true;
+                }
+
+                // Die at 3.5 seconds
+                if (this.puddleTime >= 3.5) {
+                    this.die();
+                    return;
+                }
+            }
+        } else {
+            if (this.inPuddle) {
+                // Just left puddle
+                this.inPuddle = false;
+                this.puddleTime = 0;
+                this.puddleDamageApplied = false;
+            }
+        }
     }
     
     getStats() {

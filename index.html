@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AntEater</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Jersey+10&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
 </head>
@@ -28,21 +31,6 @@
     <div id="game-container" style="display: none;">
         <div id="ui-panel">
             <h2>AntEater</h2>
-            <div class="control-group">
-                <label for="food-count">Recursos de Comida:</label>
-                <input type="range" id="food-count" min="1" max="10" value="3">
-                <span id="food-count-value">3</span>
-            </div>
-            <div class="control-group">
-                <label for="pheromone-decay">Desvanecimiento de Feromonas:</label>
-                <input type="range" id="pheromone-decay" min="0.001" max="0.01" step="0.001" value="0.005">
-                <span id="pheromone-decay-value">0.005</span>
-            </div>
-            <div class="control-group">
-                <label for="simulation-speed">Velocidad:</label>
-                <input type="range" id="simulation-speed" min="0.5" max="3" step="0.1" value="1">
-                <span id="simulation-speed-value">1.0</span>
-            </div>
             <div class="stats">
                 <div>Comida Recolectada: <span id="food-collected">0</span></div>
                 <div>Hormigas Activas: <span id="active-ants">0</span></div>
@@ -53,6 +41,13 @@
                 <div>Hormigas Totales: <span id="total-ants">0</span></div>
                 <div>Generación: <span id="generation">1</span></div>
                 <div>Eficiencia: <span id="efficiency">100%</span></div>
+                <div id="reproduction-info" style="margin-top: 10px; padding: 8px; background: rgba(255, 20, 147, 0.1); border-radius: 4px; display: none;">
+                    <div style="color: #FF1493; font-weight: bold;">Reproducción Activa</div>
+                    <div>Huevos: <span id="eggs-count">0</span></div>
+                    <div>Larvas: <span id="larvae-count">0</span></div>
+                    <div>Pupas: <span id="pupae-count">0</span></div>
+                    <div id="nuptial-flight-status" style="color: #FF69B4; font-style: italic;">Vuelo Nupcial en Progreso ❤️</div>
+                </div>
             </div>
 
             <div class="ant-stats" id="ant-stats" style="display: none; margin-top: 20px; padding: 15px; background: rgba(52, 73, 94, 0.5); border-radius: 8px; border: 1px solid #3498db;">
@@ -66,6 +61,7 @@
                 <div id="ant-fed-brood">Fed Brood: No</div>
                 <div id="ant-lifespan">Lifespan: 0s</div>
                 <div id="ant-corpses-collected">Corpses Collected: 0</div>
+                <button id="follow-ant-btn" style="width: 100%; padding: 8px; background: #f39c12; color: white; border: 1px solid #e67e22; border-radius: 4px; margin-top: 10px; cursor: pointer;">Follow Ant</button>
             </div>
             <button id="pause-btn" style="width: 100%; padding: 8px; background: #f39c12; color: white; border: 1px solid #e67e22; border-radius: 4px; margin-top: 10px; cursor: pointer;">Pause Game</button>
             <button id="add-food-btn" style="width: 100%; padding: 8px; background: #e74c3c; color: white; border: 1px solid #c0392b; border-radius: 4px; margin-top: 10px; cursor: pointer;">Add Random Food</button>
@@ -77,6 +73,7 @@
     <script src="js/ant.js"></script>
     <script src="js/food.js"></script>
     <script src="js/pheromone.js"></script>
+    <script src="js/puddle.js"></script>
     <script src="js/colony.js"></script>
     <script src="js/termite.js"></script>
     <script src="js/game.js"></script>

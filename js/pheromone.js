@@ -2,11 +2,11 @@ class PheromoneSystem {
     constructor(scene) {
         this.scene = scene;
         this.pheromones = [];
-        this.decayRate = 0.005; // How fast pheromones fade
-        this.maxPheromones = 1000; // Maximum number of pheromone points
+        this.decayRate = 0.001; // Even slower decay for longer-lasting pheromones
+        this.maxPheromones = 2000; // Increased maximum for more persistent pheromones
         this.gridSize = 20; // Size of pheromone grid cells
         this.pheromoneGrid = new Map(); // Spatial hash for efficient lookup
-        
+
         // Visual representation
         this.pheromoneGraphics = scene.add.graphics();
         this.updateInterval = 100; // Update visuals every 100ms
@@ -14,15 +14,25 @@ class PheromoneSystem {
     }
     
     addPheromone(x, y, type, intensity = 1.0) {
+        // Make danger pheromones much stronger and longer-lasting
+        let adjustedIntensity = intensity;
+        if (type === 'danger') {
+            adjustedIntensity = Math.min(intensity * 3.0, 5.0); // Danger pheromones are 3x stronger, max 5.0
+        } else if (type === 'food_trail') {
+            adjustedIntensity = Math.min(intensity * 2.5, 3.0); // Food trails much stronger for better detection
+        }
+
         // Create new pheromone
         const pheromone = {
             x: x,
             y: y,
             type: type, // 'food_trail', 'exploration', 'danger'
-            intensity: Math.min(intensity, 1.0),
-            maxIntensity: intensity,
+            intensity: Math.min(adjustedIntensity, 5.0), // Allow higher intensity
+            maxIntensity: adjustedIntensity,
             age: 0,
-            id: Date.now() + Math.random()
+            id: Date.now() + Math.random(),
+            trailLength: type === 'food_trail' ? 1 : 0, // Track how many ants are following this trail
+            lastFollowerCount: 0
         };
         
         this.pheromones.push(pheromone);
@@ -47,14 +57,25 @@ class PheromoneSystem {
         for (let i = this.pheromones.length - 1; i >= 0; i--) {
             const pheromone = this.pheromones[i];
             pheromone.age += delta;
-            
-            // Decay intensity over time
-            pheromone.intensity = pheromone.maxIntensity * Math.exp(-pheromone.age * this.decayRate);
-            
-            // Remove very weak pheromones
-            if (pheromone.intensity < 0.01) {
-                this.removePheromoneFromGrid(pheromone);
-                this.pheromones.splice(i, 1);
+
+            // Decay intensity over time (except for danger pheromones)
+            if (pheromone.type !== 'danger') {
+                pheromone.intensity = pheromone.maxIntensity * Math.exp(-pheromone.age * this.decayRate);
+            } // Danger pheromones never decay
+
+            // For food trails, adjust intensity based on trail length (more followers = stronger)
+            if (pheromone.type === 'food_trail') {
+                const followerBonus = Math.min(pheromone.trailLength * 0.5, 2.0); // Up to 2.0 bonus intensity
+                pheromone.intensity = Math.min(pheromone.maxIntensity + followerBonus, 5.0);
+            }
+
+            // Remove very weak pheromones (danger pheromones are never removed)
+            if (pheromone.type !== 'danger') {
+                const removalThreshold = 0.01;
+                if (pheromone.intensity < removalThreshold) {
+                    this.removePheromoneFromGrid(pheromone);
+                    this.pheromones.splice(i, 1);
+                }
             }
         }
         
@@ -154,16 +175,21 @@ class PheromoneSystem {
         }
         
         // Draw each type with different colors and styles
-        this.drawPheromoneType(pheromonesByType['food_trail'], 0x00FF00, 0.3); // Green for food trails
-        this.drawPheromoneType(pheromonesByType['exploration'], 0xFFFF00, 0.1); // Yellow for exploration
-        this.drawPheromoneType(pheromonesByType['danger'], 0xFF0000, 0.2); // Red for danger
+        this.drawPheromoneType(pheromonesByType['food_trail'], 0x00FF00, 0.6); // Green for food trails (even more visible)
+        this.drawPheromoneType(pheromonesByType['exploration'], 0xFFFF00, 0.15); // Yellow for exploration (slightly stronger)
+        this.drawPheromoneType(pheromonesByType['danger'], 0xFF0000, 0.6); // Red for danger (much more visible)
     }
     
     drawPheromoneType(pheromones, color, baseAlpha) {
         for (const pheromone of pheromones) {
             const alpha = pheromone.intensity * baseAlpha;
-            const size = Math.max(1, pheromone.intensity * 3);
-            
+            let size = Math.max(1, pheromone.intensity * 3);
+
+            // For food trails, increase size based on trail length (more followers = bigger visual)
+            if (pheromone.type === 'food_trail') {
+                size += pheromone.trailLength * 2; // Each follower adds 2 pixels to size
+            }
+
             this.pheromoneGraphics.fillStyle(color, alpha);
             this.pheromoneGraphics.fillCircle(pheromone.x, pheromone.y, size);
         }

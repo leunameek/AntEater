@@ -1,3 +1,73 @@
+class Queen {
+    constructor(scene, x, y) {
+        this.scene = scene;
+        this.x = x;
+        this.y = y;
+
+        // Create queen sprite (larger than regular ants)
+        this.sprite = scene.add.sprite(x, y, 'ant_sprite');
+        this.sprite.setScale(0.012); // Slightly larger than worker ants
+        this.sprite.setTint(0xFF1493); // Deep pink color for queen
+        scene.physics.add.existing(this.sprite);
+
+        // Flight properties
+        this.flightRadius = 200;
+        this.flightSpeed = 100;
+        this.angle = 0;
+        this.centerX = x;
+        this.centerY = y;
+
+        // Heart effects
+        this.heartTimer = 0;
+        this.heartInterval = 500; // Heart every 0.5 seconds
+    }
+
+    update(time, delta) {
+        // Circular flight pattern
+        this.angle += (this.flightSpeed * delta / 1000) / this.flightRadius;
+        const flightX = this.centerX + Math.cos(this.angle) * this.flightRadius;
+        const flightY = this.centerY + Math.sin(this.angle) * this.flightRadius;
+
+        this.sprite.x = flightX;
+        this.sprite.y = flightY;
+
+        // Rotate sprite to face flight direction
+        this.sprite.setRotation(this.angle + Math.PI / 2);
+
+        // Create heart effects
+        this.heartTimer += delta;
+        if (this.heartTimer >= this.heartInterval) {
+            this.createHeartEffect();
+            this.heartTimer = 0;
+        }
+    }
+
+    createHeartEffect() {
+        // Create heart emoji or heart shape
+        const heart = this.scene.add.text(
+            this.sprite.x + (Math.random() - 0.5) * 20,
+            this.sprite.y - 20,
+            '❤️',
+            { fontSize: '20px', color: '#FF1493' }
+        );
+
+        // Animate heart floating up and fading
+        this.scene.tweens.add({
+            targets: heart,
+            y: heart.y - 50,
+            alpha: 0,
+            duration: 2000,
+            onComplete: () => heart.destroy()
+        });
+    }
+
+    destroy() {
+        if (this.sprite) {
+            this.sprite.destroy();
+        }
+    }
+}
+
 class Colony {
     constructor(scene, x, y) {
         this.scene = scene;
@@ -46,6 +116,22 @@ class Colony {
         this.nuptialFlightDuration = 10000; // 10 seconds flight
         this.nuptialFlightTimer = 0;
         this.postFlightTimer = 0;
+
+        // Reproduction stages
+        this.reproductionStages = {
+            eggs: 0,
+            larvae: 0,
+            pupae: 0,
+            adults: 0
+        };
+        this.queen = null; // Queen object for nuptial flight
+
+        // Reproduction timers and costs
+        this.eggsToLarvaeTime = 45000; // 45 seconds
+        this.larvaeToPupaeTime = 30000; // 30 seconds
+        this.pupaeToAdultTime = 30000; // 30 seconds
+        this.larvaeToPupaeFoodCost = 100; // Food needed for larvae to pupae
+        this.pupaeToAdultFoodCost = 150; // Food needed for pupae to adult
         
     }
     
@@ -94,6 +180,11 @@ class Colony {
     }
     
     update(time, delta) {
+        // Update queen if in nuptial flight
+        if (this.queen) {
+            this.queen.update(time, delta);
+        }
+
         // Update all ants
         for (let i = this.ants.length - 1; i >= 0; i--) {
             const ant = this.ants[i];
@@ -119,29 +210,20 @@ class Colony {
             if (this.nuptialFlightActive) {
                 this.nuptialFlightTimer += delta;
                 if (this.nuptialFlightTimer >= this.nuptialFlightDuration) {
-                    this.nuptialFlightActive = false;
-                    this.nuptialFlightTimer = 0;
-                    this.postFlightTimer = 0; // Start post-flight timer
-                    console.log('Queen returned from nuptial flight');
+                    this.endNuptialFlight();
                 }
             } else if (this.postFlightTimer >= 0) {
                 this.postFlightTimer += delta;
-                if (this.postFlightTimer >= 10000) { // 10 seconds after flight, spawn brood
-                    const broodCount = Math.floor(Math.random() * 3) + 1; // 1-3 new ants
-                    for (let i = 0; i < broodCount; i++) {
-                        this.spawnAnt();
-                    }
+                if (this.postFlightTimer >= 5000) { // 5 seconds after flight, lay eggs
+                    this.layEggs();
                     this.postFlightTimer = -1; // Disable
-                    console.log(`Queen produced ${broodCount} new ants`);
                 }
             } else {
                 this.queenReproductionTimer += delta;
                 if (this.queenReproductionTimer >= this.queenReproductionInterval) {
                     if (this.foodStorage >= this.nuptialFlightThreshold) {
                         // Start nuptial flight
-                        this.nuptialFlightActive = true;
-                        this.foodStorage -= this.nuptialFlightThreshold; // Cost for flight
-                        console.log('Queen starting nuptial flight');
+                        this.startNuptialFlight();
                     } else {
                         // Not enough food, reset timer
                         this.queenReproductionTimer = 0;
@@ -149,6 +231,9 @@ class Colony {
                 }
             }
         }
+
+        // Update reproduction stages
+        this.updateReproductionStages(delta);
         
         // Update colony visual based on food storage
         this.updateVisuals();
@@ -239,7 +324,9 @@ class Colony {
             totalAntsDied: this.totalAntsDied,
             generation: this.generation,
             antStates: states,
-            efficiency: this.totalAntsBorn > 0 ? (this.totalAntsBorn - this.totalAntsDied) / this.totalAntsBorn : 1
+            efficiency: this.totalAntsBorn > 0 ? (this.totalAntsBorn - this.totalAntsDied) / this.totalAntsBorn : 1,
+            reproductionStages: this.reproductionStages,
+            nuptialFlightActive: this.nuptialFlightActive
         };
     }
     
@@ -283,7 +370,85 @@ class Colony {
         }
     }
     
+    startNuptialFlight() {
+        this.nuptialFlightActive = true;
+        this.foodStorage -= this.nuptialFlightThreshold; // Cost for flight
+        this.nuptialFlightTimer = 0;
+        this.postFlightTimer = 0;
+
+        // Create queen for nuptial flight
+        this.queen = new Queen(this.scene, this.x, this.y);
+
+        console.log('Queen starting nuptial flight');
+    }
+
+    endNuptialFlight() {
+        this.nuptialFlightActive = false;
+        this.nuptialFlightTimer = 0;
+        this.postFlightTimer = 0; // Start post-flight timer
+
+        // Destroy queen sprite
+        if (this.queen) {
+            this.queen.destroy();
+            this.queen = null;
+        }
+
+        console.log('Queen returned from nuptial flight');
+    }
+
+    layEggs() {
+        const eggCount = Math.floor(Math.random() * 31) + 20; // 20-50 eggs
+        this.reproductionStages.eggs += eggCount;
+        console.log(`Queen laid ${eggCount} eggs`);
+    }
+
+    updateReproductionStages(delta) {
+        // Eggs to larvae (45 seconds)
+        if (this.reproductionStages.eggs > 0) {
+            // Progress based on time (45 seconds total for all eggs to become larvae)
+            const progressChance = delta / this.eggsToLarvaeTime;
+            if (Math.random() < progressChance * this.reproductionStages.eggs) {
+                this.reproductionStages.eggs--;
+                this.reproductionStages.larvae++;
+            }
+        }
+
+        // Larvae to pupae (30 seconds, requires 100 food)
+        if (this.reproductionStages.larvae > 0 && this.foodStorage >= this.larvaeToPupaeFoodCost) {
+            const progressChance = delta / this.larvaeToPupaeTime;
+            if (Math.random() < progressChance * this.reproductionStages.larvae) {
+                this.reproductionStages.larvae--;
+                this.reproductionStages.pupae++;
+                this.foodStorage -= this.larvaeToPupaeFoodCost;
+            }
+        }
+
+        // Pupae to adults (30 seconds, requires 150 food)
+        if (this.reproductionStages.pupae > 0 && this.foodStorage >= this.pupaeToAdultFoodCost) {
+            const progressChance = delta / this.pupaeToAdultTime;
+            if (Math.random() < progressChance * this.reproductionStages.pupae) {
+                this.reproductionStages.pupae--;
+                this.reproductionStages.adults++;
+                this.foodStorage -= this.pupaeToAdultFoodCost;
+            }
+        }
+
+        // Adults emerge as new ants
+        if (this.reproductionStages.adults > 0) {
+            const emergeCount = Math.min(this.reproductionStages.adults, Math.floor(Math.random() * 2) + 1);
+            for (let i = 0; i < emergeCount; i++) {
+                this.spawnAnt();
+            }
+            this.reproductionStages.adults -= emergeCount;
+        }
+    }
+
     destroy() {
+        // Destroy queen if exists
+        if (this.queen) {
+            this.queen.destroy();
+        }
+
         // Destroy all ants
         for (const ant of this.ants) {
             if (ant.sprite) {

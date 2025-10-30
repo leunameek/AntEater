@@ -2,10 +2,12 @@
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+    font-family: 'Jersey 10', 'Arial', sans-serif;
 }
 
 body {
-    font-family: 'Arial', sans-serif;
+    font-family: 'Jersey 10', 'Arial', sans-serif;
+    font-size: 20px;
     background: linear-gradient(135deg, #2c3e50, #34495e);
     color: white;
     overflow: hidden;
@@ -32,54 +34,6 @@ body {
     font-size: 1.5em;
 }
 
-.control-group {
-    margin-bottom: 15px;
-}
-
-.control-group label {
-    display: block;
-    margin-bottom: 5px;
-    color: #ecf0f1;
-    font-weight: bold;
-}
-
-.control-group input[type="range"] {
-    width: 100%;
-    margin-bottom: 5px;
-    -webkit-appearance: none;
-    appearance: none;
-    height: 6px;
-    border-radius: 3px;
-    background: #34495e;
-    outline: none;
-}
-
-.control-group input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: #3498db;
-    cursor: pointer;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-}
-
-.control-group input[type="range"]::-moz-range-thumb {
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: #3498db;
-    cursor: pointer;
-    border: none;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-}
-
-.control-group span {
-    color: #3498db;
-    font-weight: bold;
-    float: right;
-}
 
 .stats {
     margin-top: 20px;
@@ -142,4 +96,9 @@ body {
 
 #ui-panel::-webkit-scrollbar-thumb:hover {
     background: #2980b9;
+}
+
+button {
+    font-family: 'Jersey 10', 'Arial', sans-serif, !important;
+    font-size: 20px !important;
 }

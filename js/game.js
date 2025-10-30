@@ -118,7 +118,7 @@ class AntColonyGame extends Phaser.Scene {
 
         // Simulation parameters
         this.antCount = 50;
-        this.foodCount = 3;
+        this.foodCount = 8; // Increased food count for better spread
         this.pheromoneDecay = 0.005;
         this.simulationSpeed = 1.0;
 
@@ -142,6 +142,9 @@ class AntColonyGame extends Phaser.Scene {
         // Terrain system
         this.terrainSystem = null;
 
+        // Puddle system
+        this.puddleSystem = null;
+
         // Corpse system
         this.corpses = [];
 
@@ -162,31 +165,35 @@ class AntColonyGame extends Phaser.Scene {
     }
     
     preload() {
-        // No assets needed - using graphics primitives
+        this.load.atlas('ant_sprites', 'assets/sprites/ant_sprites.png', 'assets/sprites/ant_sprites.json');
     }
     
     create() {
         // Set world bounds to match canvas size initially, but allow expansion
         const canvasWidth = this.cameras.main.width;
         const canvasHeight = this.cameras.main.height;
-        const worldWidth = Math.max(canvasWidth * 2, 1200); // At least 2x canvas width
-        const worldHeight = Math.max(canvasHeight * 2, 900); // At least 2x canvas height
+        const worldWidth = Math.max(canvasWidth * 3, 1800); // At least 3x canvas width for better spread
+        const worldHeight = Math.max(canvasHeight * 3, 1350); // At least 3x canvas height for better spread
 
         this.physics.world.setBounds(0, 0, worldWidth, worldHeight);
         this.cameras.main.setBounds(0, 0, worldWidth, worldHeight);
 
         // Start with a reasonable zoom to show the world
-        this.cameras.main.setZoom(1.0);
+        this.cameras.main.setZoom(0.8); // Slightly zoomed out to show more area
         this.cameras.main.centerOn(worldWidth / 2, worldHeight / 2);
 
         // Initialize systems
         this.terrainSystem = new TerrainSystem(this, worldWidth, worldHeight);
         this.pheromoneSystem = new PheromoneSystem(this);
         this.foodManager = new FoodManager(this);
+        this.puddleSystem = new PuddleSystem(this);
         this.colony = new Colony(this, worldWidth / 2, worldHeight / 2);
 
         // Create initial food sources
         this.foodManager.createRandomFoodSources(this.foodCount, worldWidth, worldHeight);
+
+        // Create initial puddles
+        this.puddleSystem.spawnRandomPuddles(worldWidth, worldHeight, 3);
 
         // Spawn initial ants
         this.spawnInitialAnts();
@@ -212,35 +219,6 @@ class AntColonyGame extends Phaser.Scene {
     }
     
     setupUIControls() {
-        // Food count control
-        const foodCountSlider = document.getElementById('food-count');
-        const foodCountValue = document.getElementById('food-count-value');
-
-        foodCountSlider.addEventListener('input', (e) => {
-            this.foodCount = parseInt(e.target.value);
-            foodCountValue.textContent = this.foodCount;
-        });
-
-        // Pheromone decay control
-        const pheromoneDecaySlider = document.getElementById('pheromone-decay');
-        const pheromoneDecayValue = document.getElementById('pheromone-decay-value');
-
-        pheromoneDecaySlider.addEventListener('input', (e) => {
-            this.pheromoneDecay = parseFloat(e.target.value);
-            pheromoneDecayValue.textContent = this.pheromoneDecay;
-            this.pheromoneSystem.setDecayRate(this.pheromoneDecay);
-        });
-
-        // Simulation speed control
-        const speedSlider = document.getElementById('simulation-speed');
-        const speedValue = document.getElementById('simulation-speed-value');
-
-        speedSlider.addEventListener('input', (e) => {
-            this.simulationSpeed = parseFloat(e.target.value);
-            speedValue.textContent = this.simulationSpeed;
-            this.time.timeScale = this.simulationSpeed;
-        });
-
         // Pause button
         const pauseBtn = document.getElementById('pause-btn');
         pauseBtn.addEventListener('click', () => {
@@ -262,20 +240,93 @@ class AntColonyGame extends Phaser.Scene {
     }
     
     setupInputHandlers() {
-        // Mouse wheel zoom
+        // Camera dragging variables
+        this.isDragging = false;
+        this.dragStartX = 0;
+        this.dragStartY = 0;
+        this.cameraStartX = 0;
+        this.cameraStartY = 0;
+
+        // Constrain camera to bounds initially
+        this.constrainCameraToBounds();
+
+        // Mouse wheel zoom with cursor position focus
         this.input.on('wheel', (pointer, gameObjects, deltaX, deltaY, deltaZ) => {
-            const zoomSpeed = 0.1;
-            const minZoom = 0.5;
+            const zoomSpeed = 0.05; // Reduced from 0.1 for smoother zooming
+            const minZoom = 0.3; // Allow more zoom out
             const maxZoom = 2.0;
 
             let newZoom = this.cameras.main.zoom;
             if (deltaY > 0) {
+                // Zoom out - gradual zoom out instead of instant fit
                 newZoom = Math.max(minZoom, newZoom - zoomSpeed);
+
+                // Calculate zoom to fit entire world
+                const canvasWidth = this.cameras.main.width;
+                const canvasHeight = this.cameras.main.height;
+                const worldWidth = this.physics.world.bounds.width;
+                const worldHeight = this.physics.world.bounds.height;
+
+                const zoomX = canvasWidth / worldWidth;
+                const zoomY = canvasHeight / worldHeight;
+                const fitZoom = Math.min(zoomX, zoomY) * 0.98; // 98% to ensure full coverage
+
+                // Don't go beyond fit zoom, but allow gradual zooming
+                newZoom = Math.max(fitZoom, newZoom);
+
+                // Center on world center when zooming out significantly
+                if (newZoom <= fitZoom * 1.2) {
+                    this.cameras.main.centerOn(worldWidth / 2, worldHeight / 2);
+                }
             } else {
+                // Zoom in - center on cursor position
                 newZoom = Math.min(maxZoom, newZoom + zoomSpeed);
+                const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+                this.cameras.main.centerOn(worldPoint.x, worldPoint.y);
             }
 
             this.cameras.main.setZoom(newZoom);
+
+            // Constrain camera position after zoom change
+            this.constrainCameraToBounds();
+        });
+
+        // Middle mouse button or Alt+Left click dragging
+        this.input.on('pointerdown', (pointer) => {
+            // Check if we're not clicking on UI elements
+            const uiPanel = document.getElementById('ui-panel');
+            const isClickingUI = uiPanel && uiPanel.contains(pointer.event.target);
+
+            if (!isClickingUI && (pointer.middleButtonDown() || (pointer.leftButtonDown() && this.input.keyboard.checkDown(this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ALT))))) {
+                this.isDragging = true;
+                this.dragStartX = pointer.x;
+                this.dragStartY = pointer.y;
+                this.cameraStartX = this.cameras.main.scrollX;
+                this.cameraStartY = this.cameras.main.scrollY;
+            }
+        });
+
+        this.input.on('pointermove', (pointer) => {
+            if (this.isDragging) {
+                const deltaX = pointer.x - this.dragStartX;
+                const deltaY = pointer.y - this.dragStartY;
+
+                // Convert screen delta to world delta based on zoom
+                const worldDeltaX = deltaX / this.cameras.main.zoom;
+                const worldDeltaY = deltaY / this.cameras.main.zoom;
+
+                const newScrollX = this.cameraStartX - worldDeltaX;
+                const newScrollY = this.cameraStartY - worldDeltaY;
+
+                // Allow free movement - remove bounds constraints for better exploration
+                this.cameras.main.setScroll(newScrollX, newScrollY);
+            }
+        });
+
+        this.input.on('pointerup', (pointer) => {
+            if (this.isDragging) {
+                this.isDragging = false;
+            }
         });
 
         // Keyboard shortcuts
@@ -462,6 +513,7 @@ class AntColonyGame extends Phaser.Scene {
         this.pheromoneSystem.update(time, delta);
         this.colony.update(time, delta);
         this.foodManager.update();
+        this.puddleSystem.update(time, delta);
 
         // Update termites
         for (let i = this.termites.length - 1; i >= 0; i--) {
@@ -479,8 +531,8 @@ class AntColonyGame extends Phaser.Scene {
         }
 
 
-        // Assign food targets to ants
-        this.colony.assignFoodTargets(this.foodManager);
+        // Assign food targets to ants (this is now handled in individual ant updateState)
+        // this.colony.assignFoodTargets(this.foodManager);
 
         // Update stats display
         if (time - this.lastStatsUpdate > this.statsUpdateInterval) {
@@ -522,6 +574,35 @@ class AntColonyGame extends Phaser.Scene {
         document.getElementById('total-ants').textContent = colonyStats.totalAntsBorn;
         document.getElementById('generation').textContent = colonyStats.generation;
         document.getElementById('efficiency').textContent = `${(colonyStats.efficiency * 100).toFixed(1)}%`;
+
+        // Update reproduction display
+        this.updateReproductionDisplay(colonyStats);
+    }
+
+    updateReproductionDisplay(colonyStats) {
+        const reproductionInfo = document.getElementById('reproduction-info');
+        const eggsCount = document.getElementById('eggs-count');
+        const larvaeCount = document.getElementById('larvae-count');
+        const pupaeCount = document.getElementById('pupae-count');
+        const nuptialFlightStatus = document.getElementById('nuptial-flight-status');
+
+        const stages = colonyStats.reproductionStages;
+        const hasReproduction = stages.eggs > 0 || stages.larvae > 0 || stages.pupae > 0 || colonyStats.nuptialFlightActive;
+
+        if (hasReproduction) {
+            reproductionInfo.style.display = 'block';
+            eggsCount.textContent = stages.eggs;
+            larvaeCount.textContent = stages.larvae;
+            pupaeCount.textContent = stages.pupae;
+
+            if (colonyStats.nuptialFlightActive) {
+                nuptialFlightStatus.style.display = 'block';
+            } else {
+                nuptialFlightStatus.style.display = 'none';
+            }
+        } else {
+            reproductionInfo.style.display = 'none';
+        }
     }
     
     resetSimulation() {
@@ -534,6 +615,7 @@ class AntColonyGame extends Phaser.Scene {
         if (this.colony) this.colony.destroy();
         if (this.foodManager) this.foodManager.clear();
         if (this.pheromoneSystem) this.pheromoneSystem.clear();
+        if (this.puddleSystem) this.puddleSystem.clear();
 
         // Clear termites
         for (const termite of this.termites) {
@@ -552,9 +634,10 @@ class AntColonyGame extends Phaser.Scene {
         }
 
         // Recreate systems
-        const { width, height } = this.cameras.main;
+        const { width, height } = this.cameras.main.getBounds(); // Use world bounds
         this.colony = new Colony(this, width / 2, height / 2);
         this.foodManager.createRandomFoodSources(this.foodCount, width, height);
+        this.puddleSystem.spawnRandomPuddles(width, height, 3);
 
         // Spawn new ants
         this.spawnInitialAnts();
@@ -597,7 +680,7 @@ class AntColonyGame extends Phaser.Scene {
 
     // Method to add random food sources
     addRandomFood() {
-        const { width, height } = this.cameras.main;
+        const { width, height } = this.cameras.main.getBounds(); // Use world bounds instead of camera bounds
         const numSources = Math.floor(Math.random() * 3) + 1; // 1-3 sources
 
         for (let i = 0; i < numSources; i++) {
@@ -608,55 +691,28 @@ class AntColonyGame extends Phaser.Scene {
         }
     }
 
-    // Method to start termite attack
-    startAttack() {
-        if (this.attackActive) return;
+    // Method to constrain camera within world bounds
+    constrainCameraToBounds() {
+        const worldWidth = this.physics.world.bounds.width;
+        const worldHeight = this.physics.world.bounds.height;
+        const cameraWidth = this.cameras.main.width / this.cameras.main.zoom;
+        const cameraHeight = this.cameras.main.height / this.cameras.main.zoom;
 
-        this.attackActive = true;
-        const { width, height } = this.cameras.main;
+        const constrainedX = Phaser.Math.Clamp(this.cameras.main.scrollX, 0, worldWidth - cameraWidth);
+        const constrainedY = Phaser.Math.Clamp(this.cameras.main.scrollY, 0, worldHeight - cameraHeight);
 
-        // Calculate termite count based on ant population (1 termite per 3 ants, min 5)
-        const antCount = this.colony.ants.length;
-        this.termiteCount = Math.max(5, Math.floor(antCount / 3));
-
-        // Spawn termites from edges
-        for (let i = 0; i < this.termiteCount; i++) {
-            let x, y;
-            const side = Math.floor(Math.random() * 4);
-
-            switch (side) {
-                case 0: // Top
-                    x = Math.random() * width;
-                    y = -20;
-                    break;
-                case 1: // Right
-                    x = width + 20;
-                    y = Math.random() * height;
-                    break;
-                case 2: // Bottom
-                    x = Math.random() * width;
-                    y = height + 20;
-                    break;
-                case 3: // Left
-                    x = -20;
-                    y = Math.random() * height;
-                    break;
-            }
-
-            const termite = new Termite(this, x, y);
-            this.termites.push(termite);
-        }
-
-        // Update button
-        const startAttackBtn = document.getElementById('start-attack-btn');
-        startAttackBtn.textContent = 'Attack Active';
-        startAttackBtn.style.background = '#FF4500';
-        startAttackBtn.disabled = true;
+        this.cameras.main.setScroll(constrainedX, constrainedY);
     }
 
 
 
+
     selectAnt(ant) {
+        // Stop following previous ant if any
+        if (this.selectedAnt && this.selectedAnt !== ant) {
+            this.selectedAnt.stopFollowing();
+        }
+
         this.selectedAnt = ant;
         const stats = ant.getStats();
         const antStatsDiv = document.getElementById('ant-stats');
@@ -669,6 +725,7 @@ class AntColonyGame extends Phaser.Scene {
         const fedBroodEl = document.getElementById('ant-fed-brood');
         const lifespanEl = document.getElementById('ant-lifespan');
         const corpsesCollectedEl = document.getElementById('ant-corpses-collected');
+        const followBtn = document.getElementById('follow-ant-btn');
 
         idEl.textContent = `ID: ${stats.id}`;
         roleEl.textContent = `Role: ${stats.role}`;
@@ -680,10 +737,18 @@ class AntColonyGame extends Phaser.Scene {
         lifespanEl.textContent = `Lifespan: ${stats.lifespan}`;
         corpsesCollectedEl.textContent = `Corpses Collected: ${stats.corpsesCollected}`;
 
+        // Update follow button text
+        followBtn.textContent = ant.isBeingFollowed ? 'Stop Following' : 'Follow Ant';
+
         antStatsDiv.style.display = 'block';
     }
 
     clearSelection() {
+        // Stop following the ant if it was being followed
+        if (this.selectedAnt && this.selectedAnt.isBeingFollowed) {
+            this.selectedAnt.stopFollowing();
+        }
+
         this.selectedAnt = null;
         document.getElementById('ant-stats').style.display = 'none';
     }
@@ -693,6 +758,16 @@ class AntColonyGame extends Phaser.Scene {
         if (clearBtn) {
             clearBtn.addEventListener('click', () => {
                 this.clearSelection();
+            });
+        }
+
+        const followBtn = document.getElementById('follow-ant-btn');
+        if (followBtn) {
+            followBtn.addEventListener('click', () => {
+                if (this.selectedAnt) {
+                    this.selectedAnt.toggleFollowing();
+                    followBtn.textContent = this.selectedAnt.isBeingFollowed ? 'Stop Following' : 'Follow Ant';
+                }
             });
         }
     }
