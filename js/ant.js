@@ -49,7 +49,7 @@ class Ant {
         this.state = 'exploring'; // exploring, seeking_food, returning_home, following_trail, resting, feeding_brood, collecting_corpse
         this.target = null;
         this.lastPheromoneDrop = 0;
-        this.pheromoneDropInterval = 50; // Drop pheromones more frequently (every 50ms)
+        this.pheromoneDropInterval = 100; // milliseconds
         this.explorationRadius = 200;
         this.homePosition = { x: x, y: y };
 
@@ -255,74 +255,29 @@ class Ant {
 
         if (this.carryingFood) {
             this.state = 'returning_home';
+        } else if (this.target && this.target.active && !this.target.isDepleted()) {
+            this.state = 'seeking_food';
         } else {
-            // Check for nearby food trails FIRST (higher priority than direct food search)
-            // Boost detection range if we're already following a trail
-            const trailDetectionRadius = this.state === 'following_trail' ? 150 : 120;
-            const nearbyTrail = this.findNearbyPheromoneTrailWithRadius(trailDetectionRadius);
+            // Check for nearby pheromone trails
+            const nearbyTrail = this.findNearbyPheromoneTrail();
             if (nearbyTrail && !this.carryingFood) {
                 this.state = 'following_trail';
                 this.target = nearbyTrail;
-                return;
-            }
-            
-            // Then check for direct food sources
-            if (this.target && this.target.active && !this.target.isDepleted()) {
-                this.state = 'seeking_food';
-                return;
-            }
-            
-            // Look for new food sources if no trails or targets found
-            const nearestFood = this.scene.foodManager.getNearestFoodSource(
-                this.sprite.x,
-                this.sprite.y,
-                200 // Search radius for food
-            );
-            if (nearestFood && nearestFood.active && !nearestFood.isDepleted()) {
-                this.setTarget(nearestFood);
-                this.state = 'seeking_food';
             } else {
-                this.state = 'exploring';
+                // Look for food sources if no trails found
+                const nearestFood = this.scene.foodManager.getNearestFoodSource(
+                    this.sprite.x,
+                    this.sprite.y,
+                    200 // Search radius for food
+                );
+                if (nearestFood && nearestFood.active && !nearestFood.isDepleted()) {
+                    this.setTarget(nearestFood);
+                    this.state = 'seeking_food';
+                } else {
+                    this.state = 'exploring';
+                }
             }
         }
-    }
-
-    findNearbyPheromoneTrailWithRadius(radius) {
-        // Enhanced version that accepts a custom detection radius
-        const nearbyPheromones = this.scene.pheromoneSystem.findPheromonesInRadius(
-            this.sprite.x,
-            this.sprite.y,
-            radius,
-            'food_trail'
-        );
-
-        if (nearbyPheromones.length === 0) {
-            return null;
-        }
-
-        // Filter out trails that lead to depleted food
-        const validTrails = nearbyPheromones.filter(({ pheromone }) => {
-            const foodSource = this.scene.foodManager.getNearestFoodSource(pheromone.x, pheromone.y, 40);
-            return foodSource && !foodSource.isDepleted();
-        });
-
-        if (validTrails.length === 0) {
-            return null;
-        }
-
-        // Sort by weighted intensity (closer + stronger = better target)
-        validTrails.sort((a, b) => {
-            const aWeight = a.pheromone.intensity * (1 - a.distance / radius);
-            const bWeight = b.pheromone.intensity * (1 - b.distance / radius);
-            return bWeight - aWeight;
-        });
-
-        // Increment trail length when an ant starts following
-        if (validTrails[0].pheromone) {
-            validTrails[0].pheromone.trailLength = (validTrails[0].pheromone.trailLength || 0) + 1;
-        }
-
-        return validTrails[0].pheromone;
     }
     
     explore() {
@@ -350,51 +305,12 @@ class Ant {
                 // Reached food source
                 this.collectFood(this.target);
             } else {
-                // Check for puddles in the path to food
-                const alternativeDirection = this.findSafeRouteToFood(dx, dy);
-                if (alternativeDirection) {
-                    this.direction = alternativeDirection;
-                } else {
-                    this.direction = Math.atan2(dy, dx);
-                }
+                this.direction = Math.atan2(dy, dx);
             }
         } else {
             this.target = null;
             this.state = 'exploring';
         }
-    }
-
-    findSafeRouteToFood(dx, dy) {
-        // Similar to findSafeRouteToHome but for food sources
-        const targetDistance = Math.sqrt(dx * dx + dy * dy);
-        const stepSize = 25; // Check every 25 pixels along the path
-        const steps = Math.floor(targetDistance / stepSize);
-        
-        const puddlesInPath = [];
-        const currentX = this.sprite.x;
-        const currentY = this.sprite.y;
-        
-        for (let i = 1; i <= steps; i++) {
-            const t = (i * stepSize) / targetDistance;
-            const pathX = currentX + dx * t;
-            const pathY = currentY + dy * t;
-            
-            const puddle = this.scene.puddleSystem.getPuddleAt(pathX, pathY);
-            if (puddle) {
-                puddlesInPath.push({
-                    puddle: puddle,
-                    distance: stepSize * i,
-                    centerX: pathX,
-                    centerY: pathY
-                });
-            }
-        }
-        
-        if (puddlesInPath.length === 0) {
-            return null;
-        }
-        
-        return this.calculateAlternativeRoute(puddlesInPath, dx, dy, targetDistance);
     }
     
     returnHome() {
@@ -406,191 +322,31 @@ class Ant {
             // Reached home
             this.depositFood();
         } else {
-            // Check for puddles in the direct path
-            const alternativeDirection = this.findSafeRouteToHome(dx, dy);
-            if (alternativeDirection) {
-                this.direction = alternativeDirection;
-            } else {
-                this.direction = Math.atan2(dy, dx);
-            }
+            this.direction = Math.atan2(dy, dx);
         }
-    }
-
-    findSafeRouteToHome(dx, dy) {
-        // Check if there are puddles in the direct path to home
-        const targetDistance = Math.sqrt(dx * dx + dy * dy);
-        const stepSize = 30; // Check every 30 pixels along the path
-        const steps = Math.floor(targetDistance / stepSize);
-        
-        // Sample points along the path to detect puddles
-        const puddlesInPath = [];
-        const currentX = this.sprite.x;
-        const currentY = this.sprite.y;
-        
-        for (let i = 1; i <= steps; i++) {
-            const t = (i * stepSize) / targetDistance;
-            const pathX = currentX + dx * t;
-            const pathY = currentY + dy * t;
-            
-            // Check if this point is in a puddle
-            const puddle = this.scene.puddleSystem.getPuddleAt(pathX, pathY);
-            if (puddle) {
-                puddlesInPath.push({
-                    puddle: puddle,
-                    distance: stepSize * i,
-                    centerX: pathX,
-                    centerY: pathY
-                });
-            }
-        }
-        
-        // If no puddles in path, return direct route
-        if (puddlesInPath.length === 0) {
-            return null;
-        }
-        
-        // Find the best alternative route
-        return this.calculateAlternativeRoute(puddlesInPath, dx, dy, targetDistance);
-    }
-
-    calculateAlternativeRoute(puddlesInPath, dx, dy, targetDistance) {
-        // Get the closest puddle blocking the path
-        const closestPuddle = puddlesInPath[0];
-        const puddleX = closestPuddle.puddle.x;
-        const puddleY = closestPuddle.puddle.y;
-        
-        // Calculate the angle to the puddle center
-        const puddleAngle = Math.atan2(puddleY - this.sprite.y, puddleX - this.sprite.x);
-        
-        // Calculate angles to go around the puddle (left or right)
-        const puddleRadius = closestPuddle.puddle.radius;
-        const safeDistance = puddleRadius + 20; // Extra margin for safety
-        
-        // Calculate direction vectors for left and right routes
-        const directAngle = Math.atan2(dy, dx);
-        const leftAngle = directAngle + Math.PI / 2;
-        const rightAngle = directAngle - Math.PI / 2;
-        
-        // Calculate alternative target points
-        const leftOffsetX = Math.cos(leftAngle) * safeDistance;
-        const leftOffsetY = Math.sin(leftAngle) * safeDistance;
-        const rightOffsetX = Math.cos(rightAngle) * safeDistance;
-        const rightOffsetY = Math.sin(rightAngle) * safeDistance;
-        
-        // Calculate routes around puddle
-        const leftRoute = {
-            x: puddleX + leftOffsetX,
-            y: puddleY + leftOffsetY,
-            distance: Math.sqrt(
-                (puddleX + leftOffsetX - this.homePosition.x) ** 2 + 
-                (puddleY + leftOffsetY - this.homePosition.y) ** 2
-            )
-        };
-        
-        const rightRoute = {
-            x: puddleX + rightOffsetX,
-            y: puddleY + rightOffsetY,
-            distance: Math.sqrt(
-                (puddleX + rightOffsetX - this.homePosition.x) ** 2 + 
-                (puddleY + rightOffsetY - this.homePosition.y) ** 2
-            )
-        };
-        
-        // Choose the shorter route
-        const chosenRoute = leftRoute.distance < rightRoute.distance ? leftRoute : rightRoute;
-        
-        // Calculate direction to the chosen alternative route
-        const altDx = chosenRoute.x - this.sprite.x;
-        const altDy = chosenRoute.y - this.sprite.y;
-        
-        return Math.atan2(altDy, altDx);
     }
     
     followTrail() {
-        // Find the best pheromone trail in a wider area
-        const nearbyPheromones = this.scene.pheromoneSystem.findPheromonesInRadius(
-            this.sprite.x,
-            this.sprite.y,
-            80, // Search radius for trail following
-            'food_trail'
-        );
-
-        if (nearbyPheromones.length === 0) {
-            // No trail found, stop following
-            this.state = 'exploring';
-            return;
-        }
-
-        // Filter for valid food sources
-        const validPheromones = nearbyPheromones.filter(({ pheromone }) => {
-            const foodSource = this.scene.foodManager.getNearestFoodSource(pheromone.x, pheromone.y, 40);
-            return foodSource && !foodSource.isDepleted();
-        });
-
-        if (validPheromones.length === 0) {
-            this.state = 'exploring';
-            return;
-        }
-
-        // Calculate the "best" direction by following the pheromone gradient
-        // Look for the direction with the strongest pheromone signal
-        let bestDirection = null;
-        let bestIntensity = 0;
-        const searchAngles = [0, Math.PI/4, Math.PI/2, 3*Math.PI/4, Math.PI, 5*Math.PI/4, 3*Math.PI/2, 7*Math.PI/4];
-        
-        for (const angle of searchAngles) {
-            const testX = this.sprite.x + Math.cos(angle) * 30;
-            const testY = this.sprite.y + Math.sin(angle) * 30;
-            
-            const testPheromones = this.scene.pheromoneSystem.findPheromonesInRadius(
-                testX, testY, 25, 'food_trail'
-            );
-            
-            if (testPheromones.length > 0) {
-                // Calculate average intensity in this direction
-                const avgIntensity = testPheromones.reduce((sum, { pheromone }) => 
-                    sum + pheromone.intensity, 0) / testPheromones.length;
-                
-                if (avgIntensity > bestIntensity) {
-                    bestIntensity = avgIntensity;
-                    bestDirection = angle;
-                }
-            }
-        }
-
-        if (bestDirection !== null) {
-            // Move toward the direction with the strongest pheromone signal
-            this.direction = bestDirection;
-            
-            // Check if we've reached a food source
-            const nearestFood = this.scene.foodManager.getNearestFoodSource(
-                this.sprite.x, this.sprite.y, 25
-            );
-            if (nearestFood && nearestFood.active && !nearestFood.isDepleted()) {
-                this.setTarget(nearestFood);
-                this.state = 'seeking_food';
-            }
-        } else {
-            // No clear gradient found, try to follow the strongest pheromone directly
-            const strongestPheromone = validPheromones[0].pheromone;
-            this.target = strongestPheromone;
-            
-            const dx = strongestPheromone.x - this.sprite.x;
-            const dy = strongestPheromone.y - this.sprite.y;
+        if (this.target && this.target.active && !this.target.isDepleted()) {
+            const dx = this.target.x - this.sprite.x;
+            const dy = this.target.y - this.sprite.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
-            
+
             if (distance < 15) {
-                // Reached this pheromone point, look for a stronger one nearby
-                const nextPoint = this.findNextTrailPoint();
-                if (nextPoint) {
-                    this.target = nextPoint;
-                    this.direction = Math.atan2(nextPoint.y - this.sprite.y, nextPoint.x - this.sprite.x);
-                } else {
+                // Reached trail point, look for next one
+                this.target = this.findNextTrailPoint();
+                if (!this.target) {
                     this.state = 'exploring';
                 }
             } else {
                 this.direction = Math.atan2(dy, dx);
             }
+        } else {
+            // Decrement trail length when stopping following
+            if (this.target && this.target.trailLength > 0) {
+                this.target.trailLength--;
+            }
+            this.state = 'exploring';
         }
     }
 
@@ -638,12 +394,8 @@ class Ant {
             this.foodAmount += collected;
             foodSource.amount -= collected;
 
-            // Start carrying food as soon as any food is collected
-            if (this.foodAmount > 0) {
-                this.carryingFood = true;
-            }
-
             if (this.foodAmount >= this.maxFoodCarry) {
+                this.carryingFood = true;
                 this.target = null;
             }
 
@@ -771,44 +523,21 @@ class Ant {
     
     dropPheromones(time) {
         if (time - this.lastPheromoneDrop > this.pheromoneDropInterval) {
-            // Drop stronger pheromones when carrying ANY food (not just full capacity)
-            if (this.foodAmount > 0) {
-                // Calculate intensity based on food amount
-                const intensity = Math.min(1.0 + (this.foodAmount / this.maxFoodCarry) * 1.5, 2.5);
+            if (this.carryingFood) {
+                // Drop strong pheromones when carrying food
                 this.scene.pheromoneSystem.addPheromone(
                     this.sprite.x, 
                     this.sprite.y, 
                     'food_trail', 
-                    intensity
+                    1.0
                 );
-                
-                // Drop additional pheromones for enhanced trail visibility
-                if (this.foodAmount >= this.maxFoodCarry * 0.7) {
-                    // Drop a small cluster of pheromones for very strong trails
-                    const clusterSize = 3;
-                    const angleStep = (Math.PI * 2) / clusterSize;
-                    
-                    for (let i = 0; i < clusterSize; i++) {
-                        const angle = angleStep * i + Math.random() * 0.5;
-                        const distance = 8 + Math.random() * 8;
-                        const offsetX = Math.cos(angle) * distance;
-                        const offsetY = Math.sin(angle) * distance;
-                        
-                        this.scene.pheromoneSystem.addPheromone(
-                            this.sprite.x + offsetX,
-                            this.sprite.y + offsetY,
-                            'food_trail',
-                            intensity * 0.7 // Slightly weaker but still significant
-                        );
-                    }
-                }
             } else if (this.state === 'exploring') {
-                // Drop exploration pheromones
+                // Drop weak exploration pheromones
                 this.scene.pheromoneSystem.addPheromone(
                     this.sprite.x, 
                     this.sprite.y, 
                     'exploration', 
-                    0.4 // Slightly stronger exploration pheromones
+                    0.3
                 );
             }
             this.lastPheromoneDrop = time;
@@ -816,8 +545,24 @@ class Ant {
     }
     
     findNearbyPheromoneTrail() {
-        // Use the enhanced method with default radius
-        return this.findNearbyPheromoneTrailWithRadius(120);
+        const trail = this.scene.pheromoneSystem.findStrongestPheromone(
+            this.sprite.x,
+            this.sprite.y,
+            100, // Increased from 50 to 100 for better detection
+            'food_trail'
+        );
+
+        // Check if the trail leads to an active food source
+        if (trail) {
+            const foodSource = this.scene.foodManager.getNearestFoodSource(trail.x, trail.y, 30); // Increased search radius
+            if (!foodSource || foodSource.isDepleted()) {
+                return null; // Don't follow trail to depleted food
+            }
+            // Increment trail length when an ant starts following
+            trail.trailLength = (trail.trailLength || 0) + 1;
+        }
+
+        return trail;
     }
     
     findNextTrailPoint() {
@@ -1083,9 +828,9 @@ class Ant {
 
     handlePuddleDamage(delta) {
         // Check if ant is currently in a puddle
-        const puddle = this.scene.puddleSystem.checkAntInPuddle(this);
+        const inPuddleNow = this.scene.puddleSystem.checkAntInPuddle(this);
 
-        if (puddle) {
+        if (inPuddleNow) {
             if (!this.inPuddle) {
                 // Just entered puddle
                 this.inPuddle = true;
@@ -1095,14 +840,14 @@ class Ant {
                 // Still in puddle, accumulate time
                 this.puddleTime += delta / 1000; // Convert to seconds
 
-                // Release warning pheromones after 0.4 seconds in puddle
-                if (this.puddleTime >= 0.4 && !this.puddleDamageApplied) {
-                    this.scene.puddleSystem.releaseWarningPheromones(this, puddle);
+                // Apply 50% health decay at 2 seconds
+                if (this.puddleTime >= 2 && !this.puddleDamageApplied) {
+                    this.energy *= 0.5; // Reduce to 50%
                     this.puddleDamageApplied = true;
                 }
 
-                // Die after 1.6 seconds in puddle
-                if (this.puddleTime >= 1.6) {
+                // Die at 3.5 seconds
+                if (this.puddleTime >= 3.5) {
                     this.die();
                     return;
                 }

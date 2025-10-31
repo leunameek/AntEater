@@ -611,17 +611,11 @@ class AntColonyGame extends Phaser.Scene {
             this.scene.resume();
         }
 
-        // Clear ant selection
-        this.clearSelection();
-
         // Clear all systems
         if (this.colony) this.colony.destroy();
         if (this.foodManager) this.foodManager.clear();
         if (this.pheromoneSystem) this.pheromoneSystem.clear();
         if (this.puddleSystem) this.puddleSystem.clear();
-
-        // Clear all remaining ant ID texts that might be lingering
-        this.clearAllAntTexts();
 
         // Clear termites
         for (const termite of this.termites) {
@@ -649,19 +643,6 @@ class AntColonyGame extends Phaser.Scene {
         this.spawnInitialAnts();
 
         console.log('Simulation reset!');
-    }
-
-    clearAllAntTexts() {
-        // Find and destroy any lingering ant ID texts
-        const antTexts = this.children.list.filter(child => 
-            child.type === 'Text' && 
-            child.fontFamily === 'Jersey 10' && 
-            child.fontSize === '12px'
-        );
-        
-        for (const text of antTexts) {
-            text.destroy();
-        }
     }
     
     pauseSimulation() {

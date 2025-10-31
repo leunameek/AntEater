@@ -86,11 +86,7 @@ class PuddleSystem {
     }
 
     checkAntInPuddle(ant) {
-        const puddle = this.getPuddleAt(ant.sprite.x, ant.sprite.y);
-        if (puddle) {
-            return puddle;
-        }
-        return null;
+        return this.checkAntCollision(ant);
     }
 
     handleAntDeathInPuddle(ant, puddle) {
@@ -145,30 +141,6 @@ class PuddleSystem {
         });
     }
 
-    releaseWarningPheromones(ant, puddle) {
-        // Release moderate danger pheromones when ant is in puddle but still alive
-        const strength = 2.0; // Moderate strength warning
-        this.scene.pheromoneSystem.addPheromone(
-            ant.sprite.x, 
-            ant.sprite.y, 
-            'danger', 
-            strength
-        );
-        
-        // Also release pheromones in a small radius around the ant
-        const warningRadius = 40;
-        const numPheromones = 6;
-
-        for (let i = 0; i < numPheromones; i++) {
-            const angle = (Math.PI * 2 * i) / numPheromones;
-            const distance = Math.random() * warningRadius;
-            const px = ant.sprite.x + Math.cos(angle) * distance;
-            const py = ant.sprite.y + Math.sin(angle) * distance;
-
-            this.scene.pheromoneSystem.addPheromone(px, py, 'danger', strength * 0.7);
-        }
-    }
-
     update(time, delta) {
         // Randomly spawn new puddles occasionally
         if (this.puddles.length < this.maxPuddles && Math.random() < this.puddleSpawnChance) {
@@ -179,17 +151,13 @@ class PuddleSystem {
         // Check all ants for puddle collisions (for danger pheromone release on death)
         for (const ant of this.scene.colony.ants) {
             if (this.checkAntCollision(ant) && ant.energy <= 0) {
-                // Ant died in puddle, release strong death pheromones
+                // Ant died in puddle, release pheromones
                 const puddle = this.getPuddleAt(ant.sprite.x, ant.sprite.y);
                 if (puddle) {
                     puddle.deathCount++;
                     this.releaseDangerPheromones(puddle.x, puddle.y, puddle.deathCount);
-                    
-                    // Strong pheromone at exact death location
-                    this.scene.pheromoneSystem.addPheromone(ant.sprite.x, ant.sprite.y, 'danger', 5.0);
-                    
-                    // Create death effect
-                    this.createDrowningEffect(ant.sprite.x, ant.sprite.y);
+                    this.scene.pheromoneSystem.addPheromone(ant.sprite.x, ant.sprite.y, 'danger', 4.0);
+                    this.createDrowningEffect(puddle.x, puddle.y);
                 }
             }
         }
