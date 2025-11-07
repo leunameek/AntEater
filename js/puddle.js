@@ -105,7 +105,7 @@ class PuddleSystem {
         // Create drowning effect
         this.createDrowningEffect(puddle.x, puddle.y);
 
-        console.log(`Ant ${ant.id} drowned in puddle at (${puddle.x}, ${puddle.y})`);
+        console.log(`Hormiga ${ant.id} se ahogó en charco en (${puddle.x}, ${puddle.y})`);
     }
 
     releaseDangerPheromones(x, y, deathCount) {

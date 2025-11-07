@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demostración del Comportamiento de Hormigas</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Jersey+10&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #1a252f;
+            color: white;
+            font-family: 'Jersey 10', monospace;
+        }
+        
+        #showcase-menu {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #1a252f;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        
+        #showcase-menu h1 {
+            font-size: 48px;
+            margin-bottom: 50px;
+            color: #4CAF50;
+        }
+        
+        .control-group {
+            margin-bottom: 25px;
+            text-align: center;
+        }
+        
+        .control-group label {
+            font-size: 20px;
+            margin-right: 20px;
+            display: block;
+            margin-bottom: 10px;
+        }
+        
+        .control-group button, .control-group select {
+            font-size: 16px;
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            background: #34495e;
+            color: white;
+        }
+        
+        .control-group button:hover, .control-group select:hover {
+            background: #2c3e50;
+        }
+        
+        .control-group button.active {
+            background: #27ae60;
+        }
+        
+        .control-group button.inactive {
+            background: #e74c3c;
+        }
+        
+        #start-showcase-btn {
+            font-size: 24px;
+            padding: 15px 30px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-top: 30px;
+        }
+        
+        #start-showcase-btn:hover {
+            background: #45a049;
+        }
+        
+        #showcase-game-container {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="showcase-menu">
+        <h1>Demostración del Comportamiento de Hormigas</h1>
+        
+        <div class="control-group">
+            <label for="ant-count">Seleccionar Cantidad de Hormigas:</label>
+            <div>
+                <button class="ant-count-btn" data-count="1">1 Hormiga</button>
+                <button class="ant-count-btn" data-count="5">5 Hormigas</button>
+                <button class="ant-count-btn" data-count="10">10 Hormigas</button>
+            </div>
+        </div>
+        
+        <div class="control-group">
+            <label for="environment-type">Tipo de Entorno:</label>
+            <select id="environment-type">
+                <option value="grass">Todo Césped</option>
+                <option value="dry_soil">Toda Tierra</option>
+                <option value="mud">Todo Lodo</option>
+                <option value="mixed" selected>Mezclado (como simulación principal)</option>
+            </select>
+        </div>
+        
+        <div class="control-group">
+            <label>Opciones de Entorno:</label>
+            <button id="puddles-toggle" class="active">Charcos: ACTIVADO</button>
+            <button id="food-toggle" class="active">Comida: ACTIVADA</button>
+        </div>
+        
+        <button id="start-showcase-btn">Iniciar Demostración</button>
+        
+        <p style="margin-top: 50px; font-size: 16px; text-align: center; max-width: 600px;">
+            Haz clic en las hormigas para ver sus estadísticas individuales y comportamiento<br>
+            Este es un entorno enfocado para observar interacciones de hormigas
+        </p>
+    </div>
+    
+    <div id="showcase-game-container">
+        <div id="showcase-ui-panel">
+            <h2>Demostración del Comportamiento de Hormigas</h2>
+            <div class="stats">
+                <div>Hormigas Activas: <span id="showcase-active-ants">0</span></div>
+                <div>Comida Recolectada: <span id="showcase-food-collected">0</span></div>
+                <div>Total de Hormigas: <span id="showcase-total-ants">0</span></div>
+                <div>Energía Promedio: <span id="showcase-avg-energy">0</span></div>
+            </div>
+            
+            <div class="ant-stats" id="showcase-ant-stats" style="display: none; margin-top: 20px; padding: 15px; background: rgba(52, 73, 94, 0.5); border-radius: 8px; border: 1px solid #3498db;">
+                <h3 style="color: #3498db; margin-bottom: 10px;">Hormiga Seleccionada</h3>
+                <div id="showcase-ant-id">ID: Ninguna</div>
+                <div id="showcase-ant-role">Rol: Trabajadora</div>
+                <div id="showcase-ant-state">Estado: Explorando</div>
+                <div id="showcase-ant-energy">Energía: 100</div>
+                <div id="showcase-ant-food">Comida Cargada: 0</div>
+                <div id="showcase-ant-health">Salud: 100%</div>
+                <button id="showcase-follow-ant-btn" style="width: 100%; padding: 8px; background: #f39c12; color: white; border: 1px solid #e67e22; border-radius: 4px; margin-top: 10px; cursor: pointer;">Seguir Hormiga</button>
+            </div>
+            
+            <button id="showcase-pause-btn" style="width: 100%; padding: 8px; background: #f39c12; color: white; border: 1px solid #e67e22; border-radius: 4px; margin-top: 10px; cursor: pointer;">Pausar</button>
+            <button id="showcase-toggle-puddles" style="width: 100%; padding: 8px; background: #27ae60; color: white; border: 1px solid #229954; border-radius: 4px; margin-top: 5px; cursor: pointer;">Alternar Charcos</button>
+            <button id="showcase-toggle-food" style="width: 100%; padding: 8px; background: #27ae60; color: white; border: 1px solid #229954; border-radius: 4px; margin-top: 5px; cursor: pointer;">Alternar Comida</button>
+            <button id="showcase-reset-btn" style="width: 100%; padding: 8px; background: #e74c3c; color: white; border: 1px solid #c0392b; border-radius: 4px; margin-top: 5px; cursor: pointer;">Reiniciar Demostración</button>
+        </div>
+        <div id="showcase-game-canvas"></div>
+    </div>
+    
+    <script src="js/ant.js"></script>
+    <script src="js/food.js"></script>
+    <script src="js/pheromone.js"></script>
+    <script src="js/puddle.js"></script>
+    <script src="js/colony.js"></script>
+    <script src="js/showcase-game.js"></script>
+    <script>
+        // Showcase menu logic
+        let selectedAntCount = 5;
+        let selectedEnvironment = 'mixed';
+        let puddlesEnabled = true;
+        let foodEnabled = true;
+        
+        // Ant count selection
+        const antCountButtons = document.querySelectorAll('.ant-count-btn');
+        antCountButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                antCountButtons.forEach(b => b.style.background = '#34495e');
+                btn.style.background = '#27ae60';
+                selectedAntCount = parseInt(btn.dataset.count);
+            });
+        });
+        
+        // Set default selection
+        antCountButtons[1].click(); // 5 ants by default
+        
+        // Environment selection
+        document.getElementById('environment-type').addEventListener('change', (e) => {
+            selectedEnvironment = e.target.value;
+        });
+        
+        // Puddles toggle
+        const puddlesToggle = document.getElementById('puddles-toggle');
+        puddlesToggle.addEventListener('click', () => {
+            puddlesEnabled = !puddlesEnabled;
+            puddlesToggle.textContent = `Charcos: ${puddlesEnabled ? 'ACTIVADO' : 'DESACTIVADO'}`;
+            puddlesToggle.className = puddlesEnabled ? 'active' : 'inactive';
+        });
+        
+        // Food toggle
+        const foodToggle = document.getElementById('food-toggle');
+        foodToggle.addEventListener('click', () => {
+            foodEnabled = !foodEnabled;
+            foodToggle.textContent = `Comida: ${foodEnabled ? 'ACTIVADA' : 'DESACTIVADA'}`;
+            foodToggle.className = foodEnabled ? 'active' : 'inactive';
+        });
+        
+        // Start showcase
+        document.getElementById('start-showcase-btn').addEventListener('click', () => {
+            document.getElementById('showcase-menu').style.display = 'none';
+            document.getElementById('showcase-game-container').style.display = 'flex';
+            startShowcaseGame();
+        });
+        
+        // Function to start the showcase game
+        function startShowcaseGame() {
+            // Smaller game configuration for focused observation
+            const config = {
+                type: Phaser.AUTO,
+                width: window.innerWidth - 300, // Account for UI panel
+                height: window.innerHeight,
+                parent: 'showcase-game-canvas',
+                backgroundColor: '#1a252f',
+                physics: {
+                    default: 'arcade',
+                    arcade: {
+                        gravity: { y: 0 },
+                        debug: false
+                    }
+                },
+                scene: AntBehaviorShowcase
+            };
+            
+            // Initialize the game
+            const game = new Phaser.Game(config);
+            window.showcaseGame = game;
+            
+            // Store configuration
+            window.showcaseConfig = {
+                antCount: selectedAntCount,
+                environment: selectedEnvironment,
+                puddlesEnabled: puddlesEnabled,
+                foodEnabled: foodEnabled
+            };
+            
+            console.log('Ant Behavior Showcase loaded!');
+        }
+    </script>
+</body>
+</html>

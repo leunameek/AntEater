@@ -379,7 +379,7 @@ class Colony {
         // Create queen for nuptial flight
         this.queen = new Queen(this.scene, this.x, this.y);
 
-        console.log('Queen starting nuptial flight');
+        console.log('Reina comenzando vuelo nupcial');
     }
 
     endNuptialFlight() {
@@ -393,13 +393,13 @@ class Colony {
             this.queen = null;
         }
 
-        console.log('Queen returned from nuptial flight');
+        console.log('Reina regresó del vuelo nupcial');
     }
 
     layEggs() {
         const eggCount = Math.floor(Math.random() * 31) + 20; // 20-50 eggs
         this.reproductionStages.eggs += eggCount;
-        console.log(`Queen laid ${eggCount} eggs`);
+        console.log(`Reina puso ${eggCount} huevos`);
     }
 
     updateReproductionStages(delta) {

@@ -1,4 +1,15 @@
+/**
+ * ANT CLASS - Organized by Functionality
+ * 
+ * This class represents an individual ant in the colony simulation.
+ * Methods are organized into logical sections for better maintainability.
+ */
+
 class Ant {
+    // ============================================================================
+    // SECTION 1: CONSTRUCTOR & INITIALIZATION
+    // ============================================================================
+    
     constructor(scene, x, y, colony, role) {
         this.scene = scene;
         this.colony = colony;
@@ -111,16 +122,10 @@ class Ant {
         this.sprite.setTexture('ant_sprites', 'H00.png');
     }
 
-    updateAnimation(time) {
-        // Simple frame cycling for walking animation
-        if (time - this.lastFrameChange > (1000 / this.animationSpeed)) {
-            this.currentFrame = (this.currentFrame + 1) % 8;
-            const frameName = `H${this.currentFrame.toString().padStart(2, '0')}.png`;
-            this.sprite.setTexture('ant_sprites', frameName);
-            this.lastFrameChange = time;
-        }
-    }
-    
+    // ============================================================================
+    // SECTION 2: CORE UPDATE LOOP
+    // ============================================================================
+
     update(time, delta) {
         this.energy -= 0.1 * delta / 1000; // Energy decreases over time
         this.lifespan += delta / 1000; // Track lifespan
@@ -279,6 +284,20 @@ class Ant {
             }
         }
     }
+
+    updateAnimation(time) {
+        // Simple frame cycling for walking animation
+        if (time - this.lastFrameChange > (1000 / this.animationSpeed)) {
+            this.currentFrame = (this.currentFrame + 1) % 8;
+            const frameName = `H${this.currentFrame.toString().padStart(2, '0')}.png`;
+            this.sprite.setTexture('ant_sprites', frameName);
+            this.lastFrameChange = time;
+        }
+    }
+
+    // ============================================================================
+    // SECTION 3: BEHAVIOR STATES
+    // ============================================================================
     
     explore() {
         // Wander behavior with some randomness
@@ -336,7 +355,18 @@ class Ant {
                 // Reached trail point, look for next one
                 this.target = this.findNextTrailPoint();
                 if (!this.target) {
-                    this.state = 'exploring';
+                    // No more trail points, check if there's food nearby to collect
+                    const nearestFood = this.scene.foodManager.getNearestFoodSource(
+                        this.sprite.x,
+                        this.sprite.y,
+                        150 // Search radius for food
+                    );
+                    if (nearestFood && nearestFood.active && !nearestFood.isDepleted()) {
+                        this.setTarget(nearestFood);
+                        this.state = 'seeking_food';
+                    } else {
+                        this.state = 'exploring';
+                    }
                 }
             } else {
                 this.direction = Math.atan2(dy, dx);
@@ -386,62 +416,6 @@ class Ant {
             // Stop moving when close to colony
             this.sprite.body.setVelocity(0, 0);
         }
-    }
-    
-    collectFood(foodSource) {
-        if (foodSource && foodSource.active && foodSource.amount > 0) {
-            const collected = Math.min(this.maxFoodCarry - this.foodAmount, foodSource.amount);
-            this.foodAmount += collected;
-            foodSource.amount -= collected;
-
-            if (this.foodAmount >= this.maxFoodCarry) {
-                this.carryingFood = true;
-                this.target = null;
-            }
-
-            // Update food source visual
-            foodSource.updateVisual();
-
-            // If food source is depleted after collection, clear target
-            if (foodSource.isDepleted()) {
-                this.target = null;
-            }
-        }
-    }
-    
-    depositFood() {
-        if (this.carryingFood) {
-            this.colony.addFood(this.foodAmount);
-            this.foodCollected += this.foodAmount;
-            this.foodAmount = 0;
-            this.carryingFood = false;
-            this.energy = Math.min(this.maxEnergy, this.energy + 20); // Restore some energy
-
-            // Start resting after depositing food
-            this.startResting();
-        }
-    }
-
-    startResting() {
-        // Determine rest duration based on tasks performed
-        const hasFedBrood = this.fedBrood;
-        this.fedBrood = false; // Reset for next cycle
-
-        if (hasFedBrood) {
-            // Did both tasks: store food and feed brood
-            this.restDuration = 4000 + Math.random() * 3000; // 4-7 seconds
-        } else {
-            // Did only one task: store food
-            this.restDuration = 3000 + Math.random() * 2000; // 3-5 seconds
-        }
-
-        this.resting = true;
-        this.restTimer = this.restDuration;
-        this.sprite.setVisible(false);
-        if (this.idText) {
-            this.idText.setVisible(false);
-        }
-        this.state = 'resting';
     }
 
     feedBrood() {
@@ -505,21 +479,70 @@ class Ant {
         }
     }
 
-    findNearestCorpse() {
-        let nearest = null;
-        let minDistance = Infinity;
+    // ============================================================================
+    // SECTION 4: FOOD MANAGEMENT
+    // ============================================================================
+    
+    collectFood(foodSource) {
+        if (foodSource && foodSource.active && foodSource.amount > 0) {
+            const collected = Math.min(this.maxFoodCarry - this.foodAmount, foodSource.amount);
+            this.foodAmount += collected;
+            foodSource.amount -= collected;
 
-        for (const corpse of this.scene.corpses) {
-            if (corpse.collected) continue;
-            const distance = this.getDistance(corpse.x, corpse.y);
-            if (distance < minDistance) {
-                minDistance = distance;
-                nearest = corpse;
+            // Set carrying food if we have any food or if source is depleted
+            if (this.foodAmount > 0 && (this.foodAmount >= this.maxFoodCarry || foodSource.isDepleted())) {
+                this.carryingFood = true;
+                this.target = null;
+            }
+
+            // Update food source visual
+            foodSource.updateVisual();
+
+            // If food source is depleted after collection, clear target
+            if (foodSource.isDepleted()) {
+                this.target = null;
             }
         }
-
-        return nearest;
     }
+    
+    depositFood() {
+        if (this.carryingFood) {
+            this.colony.addFood(this.foodAmount);
+            this.foodCollected += this.foodAmount;
+            this.foodAmount = 0;
+            this.carryingFood = false;
+            this.energy = Math.min(this.maxEnergy, this.energy + 20); // Restore some energy
+
+            // Start resting after depositing food
+            this.startResting();
+        }
+    }
+
+    startResting() {
+        // Determine rest duration based on tasks performed
+        const hasFedBrood = this.fedBrood;
+        this.fedBrood = false; // Reset for next cycle
+
+        if (hasFedBrood) {
+            // Did both tasks: store food and feed brood
+            this.restDuration = 4000 + Math.random() * 3000; // 4-7 seconds
+        } else {
+            // Did only one task: store food
+            this.restDuration = 3000 + Math.random() * 2000; // 3-5 seconds
+        }
+
+        this.resting = true;
+        this.restTimer = this.restDuration;
+        this.sprite.setVisible(false);
+        if (this.idText) {
+            this.idText.setVisible(false);
+        }
+        this.state = 'resting';
+    }
+
+    // ============================================================================
+    // SECTION 5: PHEROMONE SYSTEM
+    // ============================================================================
     
     dropPheromones(time) {
         if (time - this.lastPheromoneDrop > this.pheromoneDropInterval) {
@@ -548,17 +571,12 @@ class Ant {
         const trail = this.scene.pheromoneSystem.findStrongestPheromone(
             this.sprite.x,
             this.sprite.y,
-            100, // Increased from 50 to 100 for better detection
+            100,
             'food_trail'
         );
 
-        // Check if the trail leads to an active food source
+        // Increment trail length when an ant starts following
         if (trail) {
-            const foodSource = this.scene.foodManager.getNearestFoodSource(trail.x, trail.y, 30); // Increased search radius
-            if (!foodSource || foodSource.isDepleted()) {
-                return null; // Don't follow trail to depleted food
-            }
-            // Increment trail length when an ant starts following
             trail.trailLength = (trail.trailLength || 0) + 1;
         }
 
@@ -573,14 +591,6 @@ class Ant {
             'food_trail'
         );
 
-        // Check if the trail leads to an active food source
-        if (trail) {
-            const foodSource = this.scene.foodManager.getNearestFoodSource(trail.x, trail.y, 30); // Increased search radius
-            if (!foodSource || foodSource.isDepleted()) {
-                return null; // Don't follow trail to depleted food
-            }
-        }
-
         return trail;
     }
 
@@ -594,6 +604,10 @@ class Ant {
             'danger'
         );
     }
+
+    // ============================================================================
+    // SECTION 6: DANGER AVOIDANCE & PATHFINDING
+    // ============================================================================
 
     avoidDanger(dangerPheromone) {
         if (!dangerPheromone) return;
@@ -617,6 +631,10 @@ class Ant {
         }
     }
 
+    // ============================================================================
+    // SECTION 7: COMBAT & THREAT DETECTION
+    // ============================================================================
+
     findNearestTermite() {
         let nearest = null;
         let minDistance = Infinity;
@@ -633,11 +651,70 @@ class Ant {
         return nearest;
     }
 
-    getDistance(x, y) {
-        const dx = x - this.sprite.x;
-        const dy = y - this.sprite.y;
-        return Math.sqrt(dx * dx + dy * dy);
+    findNearestCorpse() {
+        let nearest = null;
+        let minDistance = Infinity;
+
+        for (const corpse of this.scene.corpses) {
+            if (corpse.collected) continue;
+            const distance = this.getDistance(corpse.x, corpse.y);
+            if (distance < minDistance) {
+                minDistance = distance;
+                nearest = corpse;
+            }
+        }
+
+        return nearest;
     }
+
+    handlePuddleDamage(delta) {
+        // Check if ant is currently in a puddle
+        // Only check if puddle system exists (puddles enabled)
+        if (!this.scene.puddleSystem) {
+            // Reset puddle state if puddles are disabled
+            this.inPuddle = false;
+            this.puddleTime = 0;
+            this.puddleDamageApplied = false;
+            return;
+        }
+
+        const inPuddleNow = this.scene.puddleSystem.checkAntInPuddle(this);
+
+        if (inPuddleNow) {
+            if (!this.inPuddle) {
+                // Just entered puddle
+                this.inPuddle = true;
+                this.puddleTime = 0;
+                this.puddleDamageApplied = false;
+            } else {
+                // Still in puddle, accumulate time
+                this.puddleTime += delta / 1000; // Convert to seconds
+
+                // Apply 50% health decay at 2 seconds
+                if (this.puddleTime >= 2 && !this.puddleDamageApplied) {
+                    this.energy *= 0.5; // Reduce to 50%
+                    this.puddleDamageApplied = true;
+                }
+
+                // Die at 3.5 seconds
+                if (this.puddleTime >= 3.5) {
+                    this.die();
+                    return;
+                }
+            }
+        } else {
+            if (this.inPuddle) {
+                // Just left puddle
+                this.inPuddle = false;
+                this.puddleTime = 0;
+                this.puddleDamageApplied = false;
+            }
+        }
+    }
+
+    // ============================================================================
+    // SECTION 8: MOVEMENT & VISUALS
+    // ============================================================================
     
     updateMovement() {
         // Apply movement with some randomness
@@ -701,6 +778,10 @@ class Ant {
         });
     }
 
+    // ============================================================================
+    // SECTION 9: TRAIL FOLLOWING VISUALS
+    // ============================================================================
+
     updateMovementTrail() {
         // Add current position to trail
         this.movementTrail.push({
@@ -749,7 +830,7 @@ class Ant {
     startFollowing() {
         this.isBeingFollowed = true;
         this.updateTrailGraphics();
-        console.log(`Started following ant ${this.id}`);
+        console.log(`Comenzó a seguir hormiga ${this.id}`);
     }
 
     stopFollowing() {
@@ -757,7 +838,7 @@ class Ant {
         if (this.trailGraphics) {
             this.trailGraphics.clear();
         }
-        console.log(`Stopped following ant ${this.id}`);
+        console.log(`Dejó de seguir hormiga ${this.id}`);
     }
 
     toggleFollowing() {
@@ -767,6 +848,56 @@ class Ant {
             this.startFollowing();
         }
     }
+
+    // ============================================================================
+    // SECTION 10: UTILITY METHODS
+    // ============================================================================
+
+    getDistance(x, y) {
+        const dx = x - this.sprite.x;
+        const dy = y - this.sprite.y;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    setTarget(target) {
+        this.target = target;
+    }
+    
+    getPosition() {
+        return { x: this.sprite.x, y: this.sprite.y };
+    }
+    
+    isAlive() {
+        return this.sprite && this.sprite.active && this.energy > 0;
+    }
+
+    getStats() {
+        const healthPercent = Math.floor((this.energy / this.maxEnergy) * 100);
+        let status = 'Healthy';
+        if (this.colony.foodStorage < 20) {
+            status = 'Sick';
+        } else if (this.colony.foodStorage < 50) {
+            status = 'Needs Food';
+        } else if (this.colony.foodStorage < 100) {
+            status = 'Weak';
+        }
+
+        return {
+            id: this.id,
+            role: this.role,
+            health: healthPercent + '%',
+            status: status,
+            energy: Math.floor(this.energy),
+            foodCollected: this.foodCollected,
+            fedBrood: this.fedBrood ? 'Yes' : 'No',
+            lifespan: Math.floor(this.lifespan) + 's',
+            corpsesCollected: this.corpsesCollected
+        };
+    }
+
+    // ============================================================================
+    // SECTION 11: LIFECYCLE
+    // ============================================================================
     
     die() {
         // Remove from colony
@@ -809,80 +940,5 @@ class Ant {
         if (this.idText) {
             this.idText.destroy();
         }
-    }
-    
-    // Method to set a new target (food source)
-    setTarget(target) {
-        this.target = target;
-    }
-    
-    // Get ant's current position
-    getPosition() {
-        return { x: this.sprite.x, y: this.sprite.y };
-    }
-    
-    // Check if ant is alive
-    isAlive() {
-        return this.sprite && this.sprite.active && this.energy > 0;
-    }
-
-    handlePuddleDamage(delta) {
-        // Check if ant is currently in a puddle
-        const inPuddleNow = this.scene.puddleSystem.checkAntInPuddle(this);
-
-        if (inPuddleNow) {
-            if (!this.inPuddle) {
-                // Just entered puddle
-                this.inPuddle = true;
-                this.puddleTime = 0;
-                this.puddleDamageApplied = false;
-            } else {
-                // Still in puddle, accumulate time
-                this.puddleTime += delta / 1000; // Convert to seconds
-
-                // Apply 50% health decay at 2 seconds
-                if (this.puddleTime >= 2 && !this.puddleDamageApplied) {
-                    this.energy *= 0.5; // Reduce to 50%
-                    this.puddleDamageApplied = true;
-                }
-
-                // Die at 3.5 seconds
-                if (this.puddleTime >= 3.5) {
-                    this.die();
-                    return;
-                }
-            }
-        } else {
-            if (this.inPuddle) {
-                // Just left puddle
-                this.inPuddle = false;
-                this.puddleTime = 0;
-                this.puddleDamageApplied = false;
-            }
-        }
-    }
-    
-    getStats() {
-        const healthPercent = Math.floor((this.energy / this.maxEnergy) * 100);
-        let status = 'Healthy';
-        if (this.colony.foodStorage < 20) {
-            status = 'Sick';
-        } else if (this.colony.foodStorage < 50) {
-            status = 'Needs Food';
-        } else if (this.colony.foodStorage < 100) {
-            status = 'Weak';
-        }
-
-        return {
-            id: this.id,
-            role: this.role,
-            health: healthPercent + '%',
-            status: status,
-            energy: Math.floor(this.energy),
-            foodCollected: this.foodCollected,
-            fedBrood: this.fedBrood ? 'Yes' : 'No',
-            lifespan: Math.floor(this.lifespan) + 's',
-            corpsesCollected: this.corpsesCollected
-        };
     }
 }
