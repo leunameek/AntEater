@@ -2,10 +2,15 @@ class PheromoneSystem {
     constructor(scene) {
         this.scene = scene;
         this.pheromones = [];
-        this.decayRate = 0.001; // Even slower decay for longer-lasting pheromones
+        this.decayRate = 0.001; // Default decay rate
+        this.foodTrailDecayRate = 0.307; // Specific decay rate for food trails (15-second decay)
         this.maxPheromones = 2000; // Increased maximum for more persistent pheromones
         this.gridSize = 20; // Size of pheromone grid cells
         this.pheromoneGrid = new Map(); // Spatial hash for efficient lookup
+
+        // Food trail specific settings
+        this.foodTrailMaxAge = 15000; // 15 seconds in milliseconds
+        this.removalThreshold = 0.01; // Intensity threshold for removal
 
         // Visual representation
         this.pheromoneGraphics = scene.add.graphics();
@@ -58,24 +63,45 @@ class PheromoneSystem {
             const pheromone = this.pheromones[i];
             pheromone.age += delta;
 
-            // Decay intensity over time (except for danger pheromones)
-            if (pheromone.type !== 'danger') {
-                pheromone.intensity = pheromone.maxIntensity * Math.exp(-pheromone.age * this.decayRate);
-            } // Danger pheromones never decay
-
-            // For food trails, adjust intensity based on trail length (more followers = stronger)
-            if (pheromone.type === 'food_trail') {
-                const followerBonus = Math.min(pheromone.trailLength * 0.5, 2.0); // Up to 2.0 bonus intensity
-                pheromone.intensity = Math.min(pheromone.maxIntensity + followerBonus, 5.0);
-            }
-
-            // Remove very weak pheromones (danger pheromones are never removed)
-            if (pheromone.type !== 'danger') {
-                const removalThreshold = 0.01;
-                if (pheromone.intensity < removalThreshold) {
+            // Handle different decay behaviors based on pheromone type
+            if (pheromone.type === 'danger') {
+                // Danger pheromones never decay
+                continue;
+            } else if (pheromone.type === 'food_trail') {
+                // Food trail pheromones have specific 15-second decay
+                if (pheromone.age >= this.foodTrailMaxAge) {
+                    // Force removal after 15 seconds
                     this.removePheromoneFromGrid(pheromone);
                     this.pheromones.splice(i, 1);
+                    continue;
                 }
+                
+                // Apply exponential decay for food trails
+                const decayProgress = pheromone.age / this.foodTrailMaxAge;
+                pheromone.intensity = Math.max(
+                    pheromone.maxIntensity * (1 - decayProgress),
+                    this.removalThreshold
+                );
+                
+                // Apply follower bonus but respect the 15-second time limit
+                const followerBonus = Math.min(pheromone.trailLength * 0.5, 2.0);
+                const timeReducedIntensity = pheromone.maxIntensity * (1 - decayProgress) + followerBonus;
+                pheromone.intensity = Math.min(timeReducedIntensity, 5.0);
+            } else {
+                // Other pheromone types use standard exponential decay
+                pheromone.intensity = pheromone.maxIntensity * Math.exp(-pheromone.age * this.decayRate);
+                
+                // Apply follower bonus for other trail types
+                if (pheromone.trailLength > 0) {
+                    const followerBonus = Math.min(pheromone.trailLength * 0.5, 2.0);
+                    pheromone.intensity = Math.min(pheromone.maxIntensity + followerBonus, 5.0);
+                }
+            }
+
+            // Remove very weak pheromones (danger pheromones are never removed via intensity)
+            if (pheromone.type !== 'danger' && pheromone.intensity < this.removalThreshold) {
+                this.removePheromoneFromGrid(pheromone);
+                this.pheromones.splice(i, 1);
             }
         }
         
@@ -185,13 +211,17 @@ class PheromoneSystem {
             const alpha = pheromone.intensity * baseAlpha;
             let size = Math.max(1, pheromone.intensity * 3);
 
-            // For food trails, increase size based on trail length (more followers = bigger visual)
+            // For food trails, apply visual feedback for aging (fade out over time)
             if (pheromone.type === 'food_trail') {
+                const ageProgress = Math.min(pheromone.age / this.foodTrailMaxAge, 1.0);
+                const ageFade = 1.0 - (ageProgress * 0.5); // Reduce size by up to 50% over lifetime
+                size *= ageFade;
+                
                 size += pheromone.trailLength * 2; // Each follower adds 2 pixels to size
             }
 
             this.pheromoneGraphics.fillStyle(color, alpha);
-            this.pheromoneGraphics.fillCircle(pheromone.x, pheromone.y, size);
+            this.pheromoneGraphics.fillCircle(pheromone.x, pheromone.y, Math.max(size, 1));
         }
     }
     

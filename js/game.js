@@ -151,6 +151,7 @@ class AntColonyGame extends Phaser.Scene {
         // UI elements
         this.uiElements = {};
         this.selectedAnt = null;
+        this.followingAnt = null; // Track which ant the camera is following
         this.gameOverText = null;
 
         // Performance tracking
@@ -166,6 +167,11 @@ class AntColonyGame extends Phaser.Scene {
     
     preload() {
         this.load.atlas('ant_sprites', 'assets/sprites/ant_sprites.png', 'assets/sprites/ant_sprites.json');
+        
+        // Load food sprites
+        this.load.image('hoja', 'assets/sprites/Hoja.png');
+        this.load.image('manzana', 'assets/sprites/Manzana.png');
+        this.load.image('pan', 'assets/sprites/Pan.png');
     }
     
     create() {
@@ -550,6 +556,38 @@ class AntColonyGame extends Phaser.Scene {
 
         // Handle random events
         this.updateRandomEvents(time, delta);
+
+        // Update camera to follow selected ant if following is active
+        this.updateCameraFollow(time, delta);
+        
+        // Check if followed ant is still alive
+        this.checkFollowedAntStatus();
+    }
+
+    updateCameraFollow(time, delta) {
+        // Smooth camera following
+        if (this.followingAnt && this.followingAnt.isAlive()) {
+            const antX = this.followingAnt.sprite.x;
+            const antY = this.followingAnt.sprite.y;
+            
+            // Smooth camera movement (lerp for smooth following)
+            const lerpSpeed = 0.05; // Lower = smoother, higher = faster response
+            const currentCenterX = this.cameras.main.scrollX + this.cameras.main.width / 2 / this.cameras.main.zoom;
+            const currentCenterY = this.cameras.main.scrollY + this.cameras.main.height / 2 / this.cameras.main.zoom;
+            
+            const targetCenterX = antX;
+            const targetCenterY = antY;
+            
+            // Calculate new camera center with smooth interpolation
+            const newCenterX = Phaser.Math.Linear(currentCenterX, targetCenterX, lerpSpeed);
+            const newCenterY = Phaser.Math.Linear(currentCenterY, targetCenterY, lerpSpeed);
+            
+            // Set camera to follow the ant
+            this.cameras.main.centerOn(newCenterX, newCenterY);
+            
+            // Keep camera within bounds while following
+            this.constrainCameraToBounds();
+        }
     }
 
 
@@ -710,12 +748,24 @@ class AntColonyGame extends Phaser.Scene {
     selectAnt(ant) {
         // Stop following previous ant if any
         if (this.selectedAnt && this.selectedAnt !== ant) {
+            this.stopFollowingAnt();
             this.selectedAnt.stopFollowing();
         }
 
         this.selectedAnt = ant;
-        const stats = ant.getStats();
+        this.updateAntStatsDisplay(ant);
+
+        // If the ant was being followed, resume following the new selection
+        if (ant.isBeingFollowed) {
+            this.startFollowingAnt(ant);
+        }
+
         const antStatsDiv = document.getElementById('ant-stats');
+        antStatsDiv.style.display = 'block';
+    }
+
+    updateAntStatsDisplay(ant) {
+        const stats = ant.getStats();
         const idEl = document.getElementById('ant-id');
         const roleEl = document.getElementById('ant-role');
         const healthEl = document.getElementById('ant-health');
@@ -739,13 +789,12 @@ class AntColonyGame extends Phaser.Scene {
 
         // Update follow button text
         followBtn.textContent = ant.isBeingFollowed ? 'Stop Following' : 'Follow Ant';
-
-        antStatsDiv.style.display = 'block';
     }
 
     clearSelection() {
         // Stop following the ant if it was being followed
         if (this.selectedAnt && this.selectedAnt.isBeingFollowed) {
+            this.stopFollowingAnt();
             this.selectedAnt.stopFollowing();
         }
 
@@ -765,10 +814,91 @@ class AntColonyGame extends Phaser.Scene {
         if (followBtn) {
             followBtn.addEventListener('click', () => {
                 if (this.selectedAnt) {
-                    this.selectedAnt.toggleFollowing();
+                    if (this.selectedAnt.isBeingFollowed) {
+                        this.stopFollowingAnt();
+                        this.selectedAnt.stopFollowing();
+                    } else {
+                        this.startFollowingAnt(this.selectedAnt);
+                        this.selectedAnt.startFollowing();
+                    }
                     followBtn.textContent = this.selectedAnt.isBeingFollowed ? 'Stop Following' : 'Follow Ant';
                 }
             });
+        }
+    }
+
+    startFollowingAnt(ant) {
+        this.followingAnt = ant;
+        
+        // Show following indicator
+        this.showFollowingIndicator(ant);
+        
+        // Immediately center camera on the ant
+        this.cameras.main.centerOn(ant.sprite.x, ant.sprite.y);
+        this.constrainCameraToBounds();
+        
+        console.log(`Camera now following ant ${ant.id}`);
+    }
+
+    stopFollowingAnt() {
+        if (this.followingAnt) {
+            console.log(`Stopped following ant ${this.followingAnt.id}`);
+            this.followingAnt = null;
+            this.hideFollowingIndicator();
+        }
+    }
+
+    showFollowingIndicator(ant) {
+        // Create or update following indicator
+        if (!this.followingIndicator) {
+            this.followingIndicator = this.add.graphics();
+            this.followingIndicator.setScrollFactor(0);
+            this.followingIndicator.setDepth(1000);
+        }
+        
+        // Draw indicator (circle with ant ID)
+        this.followingIndicator.clear();
+        this.followingIndicator.fillStyle(0x00FF00, 0.8);
+        this.followingIndicator.fillCircle(50, 50, 15);
+        this.followingIndicator.lineStyle(2, 0xFFFFFF, 1.0);
+        this.followingIndicator.strokeCircle(50, 50, 15);
+        
+        // Add text
+        const indicatorText = this.add.text(50, 50, `ID: ${ant.id}`, {
+            fontSize: '12px',
+            color: '#FFFFFF',
+            stroke: '#000000',
+            strokeThickness: 2
+        });
+        indicatorText.setOrigin(0.5);
+        indicatorText.setPosition(50, 80);
+        indicatorText.setScrollFactor(0);
+        indicatorText.setDepth(1001);
+        
+        // Store reference to remove later
+        this.followingIndicatorText = indicatorText;
+    }
+
+    hideFollowingIndicator() {
+        if (this.followingIndicator) {
+            this.followingIndicator.clear();
+        }
+        if (this.followingIndicatorText) {
+            this.followingIndicatorText.destroy();
+            this.followingIndicatorText = null;
+        }
+    }
+
+    // Check if followed ant is still alive and stop following if not
+    checkFollowedAntStatus() {
+        if (this.followingAnt && !this.followingAnt.isAlive()) {
+            this.stopFollowingAnt();
+            
+            // Update UI
+            const followBtn = document.getElementById('follow-ant-btn');
+            if (followBtn) {
+                followBtn.textContent = 'Follow Ant';
+            }
         }
     }
 }

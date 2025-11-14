@@ -90,9 +90,11 @@ class Ant {
 
         // Movement trail for following
         this.movementTrail = [];
-        this.maxMovementTrail = 50; // Store last 50 positions
+        this.maxMovementTrail = 1000; // Increased from 50 to 1000 for much longer trails
         this.trailGraphics = null;
         this.isBeingFollowed = false;
+        this.persistentTrail = []; // Store complete trail history
+        this.maxPersistentTrail = 2000; // Maximum persistent trail length
 
         // Animation properties
         this.currentFrame = 0;
@@ -273,7 +275,7 @@ class Ant {
                 const nearestFood = this.scene.foodManager.getNearestFoodSource(
                     this.sprite.x,
                     this.sprite.y,
-                    200 // Search radius for food
+                    300 // Increased from 200 to 300 for better food detection
                 );
                 if (nearestFood && nearestFood.active && !nearestFood.isDepleted()) {
                     this.setTarget(nearestFood);
@@ -351,7 +353,10 @@ class Ant {
             const dy = this.target.y - this.sprite.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
-            if (distance < 15) {
+            // Enhanced trail following with wider acceptance radius and trail prediction
+            const acceptanceRadius = 25; // Increased from 15 to 25 pixels
+            
+            if (distance < acceptanceRadius) {
                 // Reached trail point, look for next one
                 this.target = this.findNextTrailPoint();
                 if (!this.target) {
@@ -359,7 +364,7 @@ class Ant {
                     const nearestFood = this.scene.foodManager.getNearestFoodSource(
                         this.sprite.x,
                         this.sprite.y,
-                        150 // Search radius for food
+                        250 // Increased from 150 to 250 for better food detection at trail end
                     );
                     if (nearestFood && nearestFood.active && !nearestFood.isDepleted()) {
                         this.setTarget(nearestFood);
@@ -369,7 +374,8 @@ class Ant {
                     }
                 }
             } else {
-                this.direction = Math.atan2(dy, dx);
+                // Enhanced directional following - look ahead for better trail following
+                this.enhancedTrailFollowing(dx, dy, distance);
             }
         } else {
             // Decrement trail length when stopping following
@@ -377,6 +383,36 @@ class Ant {
                 this.target.trailLength--;
             }
             this.state = 'exploring';
+        }
+    }
+
+    enhancedTrailFollowing(dx, dy, distance) {
+        // Look for additional pheromones ahead to predict trail direction
+        const lookAheadDistance = 80; // Look 80 pixels ahead
+        const lookAheadX = this.sprite.x + (dx / distance) * lookAheadDistance;
+        const lookAheadY = this.sprite.y + (dy / distance) * lookAheadDistance;
+        
+        const aheadPheromone = this.scene.pheromoneSystem.findStrongestPheromone(
+            lookAheadX,
+            lookAheadY,
+            40, // Search radius for ahead pheromones
+            'food_trail'
+        );
+        
+        if (aheadPheromone) {
+            // There are pheromones ahead - follow the main direction
+            this.direction = Math.atan2(dy, dx);
+        } else {
+            // No pheromones ahead - might be at the end of trail, be more cautious
+            this.direction = Math.atan2(dy, dx);
+            
+            // If we're very far from the trail point, try to find a closer one
+            if (distance > 100) {
+                const closerTrail = this.findNextTrailPoint();
+                if (closerTrail) {
+                    this.target = closerTrail;
+                }
+            }
         }
     }
 
@@ -571,7 +607,7 @@ class Ant {
         const trail = this.scene.pheromoneSystem.findStrongestPheromone(
             this.sprite.x,
             this.sprite.y,
-            100,
+            180, // Increased from 100 to 180 for much better trail detection
             'food_trail'
         );
 
@@ -587,7 +623,7 @@ class Ant {
         const trail = this.scene.pheromoneSystem.findStrongestPheromone(
             this.sprite.x,
             this.sprite.y,
-            60, // Increased from 30 to 60 for better trail continuity
+            120, // Increased from 60 to 120 for much better trail continuity
             'food_trail'
         );
 
@@ -790,9 +826,24 @@ class Ant {
             timestamp: Date.now()
         });
 
-        // Keep only recent positions
+        // Add to persistent trail (complete history)
+        this.persistentTrail.push({
+            x: this.sprite.x,
+            y: this.sprite.y,
+            timestamp: Date.now(),
+            state: this.state, // Track what the ant was doing at this position
+            carryingFood: this.carryingFood // Track food carrying status
+        });
+
+        // Keep only recent positions for movement buffer
         if (this.movementTrail.length > this.maxMovementTrail) {
             this.movementTrail.shift();
+        }
+
+        // Limit persistent trail size but keep it much longer
+        if (this.persistentTrail.length > this.maxPersistentTrail) {
+            // Remove older points but keep more history than before
+            this.persistentTrail.splice(0, 500); // Remove oldest 500 points but keep rest
         }
 
         // Update trail graphics if being followed
@@ -810,27 +861,67 @@ class Ant {
             this.trailGraphics.setDepth(1); // Above terrain, below ants
         }
 
-        // Draw trail line
-        this.trailGraphics.lineStyle(3, 0xFFFF00, 0.8); // Yellow trail
-        this.trailGraphics.beginPath();
-
-        for (let i = 1; i < this.movementTrail.length; i++) {
-            const current = this.movementTrail[i];
-            const previous = this.movementTrail[i - 1];
-
-            if (i === 1) {
+        // Draw persistent trail with different colors for different states
+        if (this.persistentTrail.length > 1) {
+            // Draw trail segments with state-based colors
+            for (let i = 1; i < this.persistentTrail.length; i++) {
+                const current = this.persistentTrail[i];
+                const previous = this.persistentTrail[i - 1];
+                
+                // Choose color based on the ant's state during this segment
+                let color = 0xFFFF00; // Default yellow for exploring
+                let alpha = 0.6;
+                let lineWidth = 2;
+                
+                if (current.carryingFood) {
+                    color = 0x00FF00; // Bright green when carrying food
+                    alpha = 0.9;
+                    lineWidth = 4;
+                } else if (current.state === 'seeking_food') {
+                    color = 0xFF8C00; // Orange for seeking food
+                    alpha = 0.7;
+                    lineWidth = 3;
+                } else if (current.state === 'returning_home') {
+                    color = 0x4169E1; // Blue for returning home
+                    alpha = 0.8;
+                    lineWidth = 3;
+                } else if (current.state === 'following_trail') {
+                    color = 0x9932CC; // Purple for following trails
+                    alpha = 0.7;
+                    lineWidth = 3;
+                } else if (current.state === 'avoiding_danger') {
+                    color = 0xFF0000; // Red for avoiding danger
+                    alpha = 0.8;
+                    lineWidth = 3;
+                }
+                
+                // Fade older segments
+                const ageFactor = Math.max(0.2, 1 - (i / this.persistentTrail.length));
+                alpha *= ageFactor;
+                
+                // Draw segment
+                this.trailGraphics.lineStyle(lineWidth, color, alpha);
+                this.trailGraphics.beginPath();
                 this.trailGraphics.moveTo(previous.x, previous.y);
+                this.trailGraphics.lineTo(current.x, current.y);
+                this.trailGraphics.strokePath();
             }
-            this.trailGraphics.lineTo(current.x, current.y);
         }
 
-        this.trailGraphics.strokePath();
+        // Draw current position marker
+        if (this.persistentTrail.length > 0) {
+            const currentPos = this.persistentTrail[this.persistentTrail.length - 1];
+            this.trailGraphics.fillStyle(0xFFFFFF, 1.0);
+            this.trailGraphics.fillCircle(currentPos.x, currentPos.y, 4);
+            this.trailGraphics.lineStyle(2, 0x000000, 1.0);
+            this.trailGraphics.strokeCircle(currentPos.x, currentPos.y, 4);
+        }
     }
 
     startFollowing() {
         this.isBeingFollowed = true;
         this.updateTrailGraphics();
-        console.log(`Comenzó a seguir hormiga ${this.id}`);
+        console.log(`Started following ant ${this.id} - showing complete trail of ${this.persistentTrail.length} positions`);
     }
 
     stopFollowing() {
@@ -838,7 +929,7 @@ class Ant {
         if (this.trailGraphics) {
             this.trailGraphics.clear();
         }
-        console.log(`Dejó de seguir hormiga ${this.id}`);
+        console.log(`Stopped following ant ${this.id}`);
     }
 
     toggleFollowing() {
@@ -847,6 +938,45 @@ class Ant {
         } else {
             this.startFollowing();
         }
+    }
+
+    // Enhanced following start that integrates with camera system
+    startFollowing() {
+        this.isBeingFollowed = true;
+        this.updateTrailGraphics();
+        console.log(`Started following ant ${this.id} - showing complete trail of ${this.persistentTrail.length} positions`);
+    }
+
+    // Enhanced following stop that integrates with camera system
+    stopFollowing() {
+        this.isBeingFollowed = false;
+        if (this.trailGraphics) {
+            this.trailGraphics.clear();
+        }
+        console.log(`Stopped following ant ${this.id}`);
+    }
+
+    // Method to show trail info
+    getTrailInfo() {
+        return {
+            totalPositions: this.persistentTrail.length,
+            currentState: this.state,
+            trailLength: this.calculateTrailLength(),
+            timeSpan: this.persistentTrail.length > 0 ?
+                (this.persistentTrail[this.persistentTrail.length - 1].timestamp - this.persistentTrail[0].timestamp) / 1000 : 0
+        };
+    }
+
+    calculateTrailLength() {
+        if (this.persistentTrail.length < 2) return 0;
+        
+        let totalLength = 0;
+        for (let i = 1; i < this.persistentTrail.length; i++) {
+            const dx = this.persistentTrail[i].x - this.persistentTrail[i - 1].x;
+            const dy = this.persistentTrail[i].y - this.persistentTrail[i - 1].y;
+            totalLength += Math.sqrt(dx * dx + dy * dy);
+        }
+        return Math.round(totalLength);
     }
 
     // ============================================================================
