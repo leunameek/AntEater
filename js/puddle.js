@@ -89,6 +89,34 @@ class PuddleSystem {
         return this.checkAntCollision(ant);
     }
 
+    getPuddleProximity(ant, buffer = 20) {
+        if (!ant.isAlive()) return null;
+
+        let closest = null;
+        let closestDistance = Infinity;
+
+        for (const puddle of this.puddles) {
+            if (!puddle.active) continue;
+
+            const distanceToCenter = Math.sqrt(
+                (ant.sprite.x - puddle.x) ** 2 + (ant.sprite.y - puddle.y) ** 2
+            );
+            const distanceToEdge = distanceToCenter - puddle.radius;
+
+            if (distanceToEdge <= buffer && distanceToEdge < closestDistance) {
+                closestDistance = distanceToEdge;
+                closest = {
+                    puddle,
+                    distanceToCenter,
+                    distanceToEdge,
+                    inPuddle: distanceToEdge <= 0
+                };
+            }
+        }
+
+        return closest;
+    }
+
     handleAntDeathInPuddle(ant, puddle) {
         // Ant dies immediately when entering puddle
         ant.die();
@@ -150,7 +178,7 @@ class PuddleSystem {
 
         // Check all ants for puddle collisions (for danger pheromone release on death)
         for (const ant of this.scene.colony.ants) {
-            if (this.checkAntCollision(ant) && ant.energy <= 0) {
+            if (this.checkAntCollision(ant) && !ant.isAlive()) {
                 // Ant died in puddle, release pheromones
                 const puddle = this.getPuddleAt(ant.sprite.x, ant.sprite.y);
                 if (puddle) {

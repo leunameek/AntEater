@@ -16,7 +16,7 @@
 
         <div style="margin-bottom: 30px;">
             <label for="menu-ant-count" style="font-size: 24px; margin-right: 20px;">Initial Ant Count:</label>
-            <input type="range" id="menu-ant-count" min="10" max="200" value="50" style="width: 300px;">
+            <input type="range" id="menu-ant-count" min="10" max="50" value="50" style="width: 300px;">
             <span id="menu-ant-count-value" style="font-size: 24px; margin-left: 10px;">50</span>
         </div>
 
@@ -29,8 +29,8 @@
         </div>
 
         <p style="margin-top: 50px; font-size: 16px; text-align: center; max-width: 600px;">
-            Use mouse to select ants and view their stats<br>
-            Click "Add Food" button to spawn random food sources
+            Usa el click derecho para ver las estadisticas de cada hormiga<br>
+            Da click en agregar comida para agregar fuentes de comida aleatorias<br>
         </p>
     </div>
 
@@ -52,27 +52,27 @@
                     <div>Huevos: <span id="eggs-count">0</span></div>
                     <div>Larvas: <span id="larvae-count">0</span></div>
                     <div>Pupas: <span id="pupae-count">0</span></div>
-                    <div id="nuptial-flight-status" style="color: #FF69B4; font-style: italic;">Vuelo Nupcial en Progreso ❤️</div>
+                    <div id="nuptial-flight-status" style="color: #FF69B4; font-style: italic;">Vuelo Nupcial en Progreso</div>
                 </div>
             </div>
 
             <div class="ant-stats" id="ant-stats" style="display: none; margin-top: 20px; padding: 15px; background: rgba(52, 73, 94, 0.5); border-radius: 8px; border: 1px solid #3498db;">
-                <h3 style="color: #3498db; margin-bottom: 10px;">Selected Ant</h3>
+                <h3 style="color: #3498db; margin-bottom: 10px;">Hormiga Seleccionada</h3>
                 <div id="ant-id">ID: None</div>
-                <div id="ant-role">Role: None</div>
-                <div id="ant-health">Health: 100%</div>
-                <div id="ant-status">Status: Healthy</div>
-                <div id="ant-energy">Energy: 100</div>
-                <div id="ant-food-collected">Food Collected: 0</div>
-                <div id="ant-fed-brood">Fed Brood: No</div>
-                <div id="ant-lifespan">Lifespan: 0s</div>
-                <div id="ant-corpses-collected">Corpses Collected: 0</div>
-                <button id="follow-ant-btn" style="width: 100%; padding: 8px; background: #f39c12; color: white; border: 1px solid #e67e22; border-radius: 4px; margin-top: 10px; cursor: pointer;">Follow Ant</button>
+                <div id="ant-role">Rol: None</div>
+                <div id="ant-health">Salud: 100%</div>
+                <div id="ant-status">Estado: Saludable</div>
+                <div id="ant-energy">Energía: 100</div>
+                <div id="ant-food-collected">Comida Recolectada: 0</div>
+                <div id="ant-fed-brood">Alimentó a las crías?: No</div>
+                <div id="ant-lifespan">Tiempo de vida: 0s</div>
+                <div id="ant-corpses-collected">Cádaveres Recolectados: 0</div>
+                <div id="ant-events" style="margin-top: 8px;">Eventos: ninguno</div>
+            <button id="follow-ant-btn" style="width: 100%; padding: 8px; background: #f39c12; color: white; border: 1px solid #e67e22; border-radius: 4px; margin-top: 10px; cursor: pointer;">Seguir Hormiga</button>
             </div>
-            <button id="pause-btn" style="width: 100%; padding: 8px; background: #f39c12; color: white; border: 1px solid #e67e22; border-radius: 4px; margin-top: 10px; cursor: pointer;">Pause Game</button>
-            <button id="add-food-btn" style="width: 100%; padding: 8px; background: #e74c3c; color: white; border: 1px solid #c0392b; border-radius: 4px; margin-top: 10px; cursor: pointer;">Add Random Food</button>
+            <button id="pause-btn" style="width: 100%; padding: 8px; background: #f39c12; color: white; border: 1px solid #e67e22; border-radius: 4px; margin-top: 10px; cursor: pointer;">Pausar Simulación</button>
+            <button id="add-food-btn" style="width: 100%; padding: 8px; background: #e74c3c; color: white; border: 1px solid #c0392b; border-radius: 4px; margin-top: 10px; cursor: pointer;">Añadir Comida</button>
             <button id="reset-btn">Restablecer Colonia</button>
-            <button id="clear-selection" style="width: 100%; padding: 8px; background: #34495e; color: white; border: 1px solid #3498db; border-radius: 4px; margin-top: 5px; cursor: pointer;">Clear Selection</button>
         </div>
         <div id="game-canvas"></div>
     </div>
@@ -80,6 +80,7 @@
     <script src="js/food.js"></script>
     <script src="js/pheromone.js"></script>
     <script src="js/puddle.js"></script>
+    <script src="js/obstacle.js"></script>
     <script src="js/colony.js"></script>
     <script src="js/termite.js"></script>
     <script src="js/game.js"></script>
@@ -96,9 +97,11 @@
             menuAntCountValue.textContent = this.value;
         });
 
-        // Start game
+        // Start game (fixed to 50 initial ants, spawned in batches)
         startBtn.addEventListener('click', function() {
-            const initialAntCount = parseInt(menuAntCountSlider.value);
+            const initialAntCount = 50;
+            menuAntCountSlider.value = initialAntCount;
+            menuAntCountValue.textContent = initialAntCount;
             menu.style.display = 'none';
             gameContainer.style.display = 'flex';
             startGame(initialAntCount);

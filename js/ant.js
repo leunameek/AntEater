@@ -41,6 +41,10 @@ class Ant {
         this.speed = 80 + Math.random() * 40; // Random speed variation
         this.energy = 100;
         this.maxEnergy = 100;
+        this.health = 100;
+        this.maxHealth = 100;
+        this.maxLifespan = 180 + Math.random() * 180; // 3-6 minutes expected life
+        this.metabolicRate = 0.08 + Math.random() * 0.05; // Slight individual variation
         this.carryingFood = false;
         this.foodAmount = 0;
         this.maxFoodCarry = 10;
@@ -48,6 +52,7 @@ class Ant {
         // Statistics
         this.foodCollected = 0;
         this.fedBrood = false;
+        this.broodFedCount = 0;
         this.lifespan = 0;
         this.corpsesCollected = 0;
 
@@ -55,6 +60,7 @@ class Ant {
         this.inPuddle = false;
         this.puddleTime = 0;
         this.puddleDamageApplied = false;
+        this.puddleAlertCooldown = 0;
         
         // Behavior properties
         this.state = 'exploring'; // exploring, seeking_food, returning_home, following_trail, resting, feeding_brood, collecting_corpse
@@ -95,6 +101,11 @@ class Ant {
         this.isBeingFollowed = false;
         this.persistentTrail = []; // Store complete trail history
         this.maxPersistentTrail = 2000; // Maximum persistent trail length
+        this.events = [];
+        this.lastEncounterLog = 0;
+        this.lastFoodLog = 0;
+        this.lastObstacleLog = 0;
+        this.lastPuddleLog = 0;
 
         // Animation properties
         this.currentFrame = 0;
@@ -129,20 +140,45 @@ class Ant {
     // ============================================================================
 
     update(time, delta) {
-        this.energy -= 0.1 * delta / 1000; // Energy decreases over time
-        this.lifespan += delta / 1000; // Track lifespan
+        const deltaSec = delta / 1000;
+        this.lifespan += deltaSec; // Track lifespan
+
+        // Metabolic drain with role/context modifiers
+        const activityLoad = (this.carryingFood ? 0.09 : 0) +
+            (this.state === 'returning_home' ? 0.03 : 0) +
+            (this.state === 'attacking_termite' ? 0.05 : 0) +
+            (this.state === 'avoiding_danger' ? 0.04 : 0);
+        const energyDrain = (this.metabolicRate + activityLoad);
+        this.energy = Math.max(0, this.energy - energyDrain * deltaSec);
+
+        // Natural aging and fatigue health decay
+        const ageFactor = Phaser.Math.Clamp(this.lifespan / this.maxLifespan, 0, 2);
+        let healthLossPerSec = (100 / this.maxLifespan) * (0.6 + ageFactor); // faster wear near end of life
+        if (this.energy < 30) healthLossPerSec += 0.8; // hungry/tired
+        if (this.energy < 10) healthLossPerSec += 1.4; // starving
+        if (this.carryingFood) healthLossPerSec += 0.3; // hauling load
+        this.health = Math.max(0, this.health - healthLossPerSec * deltaSec);
 
         // Handle puddle damage
         this.handlePuddleDamage(delta);
 
-        if (this.energy <= 0) {
+        if (this.health <= 0) {
             this.die();
             return;
         }
 
+        // Log encounters periodically
+        this.trackEncounters(deltaSec);
+
         // Handle resting state
         if (this.resting) {
             this.restTimer -= delta;
+            // Recover while resting if colony has food
+            const restEnergyGain = this.colony.foodStorage > 30 ? 6 : 3;
+            this.energy = Math.min(this.maxEnergy, this.energy + restEnergyGain * deltaSec);
+            if (this.colony.foodStorage > 50 && this.health < this.maxHealth) {
+                this.health = Math.min(this.maxHealth, this.health + 2 * deltaSec);
+            }
             if (this.restTimer <= 0) {
                 this.resting = false;
                 this.sprite.setVisible(true);
@@ -280,6 +316,10 @@ class Ant {
                 if (nearestFood && nearestFood.active && !nearestFood.isDepleted()) {
                     this.setTarget(nearestFood);
                     this.state = 'seeking_food';
+                    if (this.lastFoodLog <= 0) {
+                        this.logEvent('Encontró comida');
+                        this.lastFoodLog = 4; // seconds
+                    }
                 } else {
                     this.state = 'exploring';
                 }
@@ -521,18 +561,15 @@ class Ant {
     
     collectFood(foodSource) {
         if (foodSource && foodSource.active && foodSource.amount > 0) {
-            const collected = Math.min(this.maxFoodCarry - this.foodAmount, foodSource.amount);
+            const toCollect = this.maxFoodCarry - this.foodAmount;
+            const collected = foodSource.collect(toCollect);
             this.foodAmount += collected;
-            foodSource.amount -= collected;
 
             // Set carrying food if we have any food or if source is depleted
             if (this.foodAmount > 0 && (this.foodAmount >= this.maxFoodCarry || foodSource.isDepleted())) {
                 this.carryingFood = true;
                 this.target = null;
             }
-
-            // Update food source visual
-            foodSource.updateVisual();
 
             // If food source is depleted after collection, clear target
             if (foodSource.isDepleted()) {
@@ -548,6 +585,13 @@ class Ant {
             this.foodAmount = 0;
             this.carryingFood = false;
             this.energy = Math.min(this.maxEnergy, this.energy + 20); // Restore some energy
+
+            // Randomly feed brood when returning with food
+            if (Math.random() < 0.45) { // 45% chance to feed brood on each return
+                this.fedBrood = true;
+                this.broodFedCount++;
+                this.logEvent('Alimentó las crías');
+            }
 
             // Start resting after depositing food
             this.startResting();
@@ -714,7 +758,25 @@ class Ant {
             return;
         }
 
-        const inPuddleNow = this.scene.puddleSystem.checkAntInPuddle(this);
+        // Decay cooldowns
+        this.puddleAlertCooldown = Math.max(0, this.puddleAlertCooldown - delta);
+        this.lastObstacleLog = Math.max(0, this.lastObstacleLog - delta / 1000);
+        this.lastEncounterLog = Math.max(0, this.lastEncounterLog - delta / 1000);
+        this.lastFoodLog = Math.max(0, this.lastFoodLog - delta / 1000);
+        this.lastPuddleLog = Math.max(0, this.lastPuddleLog - delta / 1000);
+
+        const proximity = this.scene.puddleSystem.getPuddleProximity(this, 25);
+        const inPuddleNow = proximity ? proximity.inPuddle : false;
+
+        // If near a puddle, immediately warn others and steer away
+        if (proximity && this.puddleAlertCooldown === 0) {
+            const { puddle } = proximity;
+            this.scene.pheromoneSystem.addPheromone(puddle.x, puddle.y, 'danger', 3.5);
+            this.scene.pheromoneSystem.addPheromone(this.sprite.x, this.sprite.y, 'danger', 3.5);
+            this.avoidDanger({ x: puddle.x, y: puddle.y });
+            this.puddleAlertCooldown = 2000; // 2 seconds between warnings per ant
+            this.logEvent('Cerca de un charco');
+        }
 
         if (inPuddleNow) {
             if (!this.inPuddle) {
@@ -726,9 +788,10 @@ class Ant {
                 // Still in puddle, accumulate time
                 this.puddleTime += delta / 1000; // Convert to seconds
 
-                // Apply 50% health decay at 2 seconds
+                // Apply health decay at 2 seconds
                 if (this.puddleTime >= 2 && !this.puddleDamageApplied) {
-                    this.energy *= 0.5; // Reduce to 50%
+                    this.health *= 0.6; // Health drops sharply when soaked
+                    this.energy *= 0.5; // Also drain stamina
                     this.puddleDamageApplied = true;
                 }
 
@@ -753,9 +816,39 @@ class Ant {
     // ============================================================================
     
     updateMovement() {
+        // Steer away from rocks/sticks (stronger avoidance when carrying food)
+        if (this.scene.obstacleSystem) {
+            const steer = this.scene.obstacleSystem.getBlockingSteer(
+                this.sprite.x,
+                this.sprite.y,
+                this.direction,
+                this.carryingFood
+            );
+            if (steer) {
+                this.direction = Phaser.Math.Angle.Wrap(this.direction + steer);
+
+                // Log obstacle encounter if close
+                if (this.lastObstacleLog <= 0) {
+                    const nearby = this.scene.obstacleSystem.getClosestObstacle(this.sprite.x, this.sprite.y, 40);
+                    if (nearby) {
+                        this.logEvent('Evitó obstáculo');
+                        this.lastObstacleLog = 3; // seconds
+                    }
+                }
+            }
+        }
+
         // Apply movement with some randomness
         const speedVariation = 0.8 + Math.random() * 0.4;
         let currentSpeed = this.speed * speedVariation;
+
+        // Fatigue slows ants
+        if (this.energy < 30) {
+            currentSpeed *= 0.8;
+        }
+        if (this.energy < 10) {
+            currentSpeed *= 0.6;
+        }
 
         // Apply terrain speed modifier
         if (this.scene.terrainSystem) {
@@ -773,8 +866,12 @@ class Ant {
     }
     
     updateVisuals() {
-        // Change tint based on state (since we're using a sprite now, not a circle)
-        if (this.scene.attackActive && this.role === 'soldier') {
+        // Change tint based on state and health
+        if (this.health < 25) {
+            this.sprite.setTint(0x8B0000); // Deep red when critical
+        } else if (this.energy < 15) {
+            this.sprite.setTint(0xFFA500); // Orange when exhausted
+        } else if (this.scene.attackActive && this.role === 'soldier') {
             this.sprite.setTint(0xDC143C); // Crimson red for soldiers during attack
         } else if (this.carryingFood) {
             this.sprite.setTint(0x00FF00); // Bright green when carrying food
@@ -983,6 +1080,28 @@ class Ant {
     // SECTION 10: UTILITY METHODS
     // ============================================================================
 
+    logEvent(text) {
+        const timestamp = new Date().toLocaleTimeString('es-ES');
+        this.events.unshift(`${timestamp} - ${text}`);
+        this.events = this.events.slice(0, 6); // Keep last 6 events
+    }
+
+    trackEncounters(deltaSec) {
+        // Encounter with another ant
+        if (this.lastEncounterLog <= 0) {
+            for (const ant of this.colony.ants) {
+                if (ant === this || !ant.isAlive()) continue;
+                if (this.getDistance(ant.sprite.x, ant.sprite.y) < 22) {
+                    this.logEvent('Encontró otra hormiga');
+                    this.lastEncounterLog = 3; // seconds
+                    break;
+                }
+            }
+        }
+
+        // Reset cooldowns handled elsewhere
+    }
+
     getDistance(x, y) {
         const dx = x - this.sprite.x;
         const dy = y - this.sprite.y;
@@ -998,18 +1117,25 @@ class Ant {
     }
     
     isAlive() {
-        return this.sprite && this.sprite.active && this.energy > 0;
+        return this.sprite && this.sprite.active && this.health > 0;
     }
 
     getStats() {
-        const healthPercent = Math.floor((this.energy / this.maxEnergy) * 100);
-        let status = 'Healthy';
-        if (this.colony.foodStorage < 20) {
-            status = 'Sick';
-        } else if (this.colony.foodStorage < 50) {
-            status = 'Needs Food';
-        } else if (this.colony.foodStorage < 100) {
-            status = 'Weak';
+        const healthPercent = Math.max(0, Math.floor((this.health / this.maxHealth) * 100));
+        const energyPercent = Math.max(0, Math.floor((this.energy / this.maxEnergy) * 100));
+        const agePercent = Math.min(1, this.lifespan / this.maxLifespan);
+
+        let status = 'Activo';
+        if (healthPercent < 25) {
+            status = 'Crítico';
+        } else if (healthPercent < 50) {
+            status = 'Débil';
+        } else if (energyPercent < 20) {
+            status = 'Agotado';
+        } else if (agePercent > 0.85) {
+            status = 'Envejeciendo';
+        } else if (this.colony.foodStorage < 30) {
+            status = 'Hambriento';
         }
 
         return {
@@ -1017,11 +1143,12 @@ class Ant {
             role: this.role,
             health: healthPercent + '%',
             status: status,
-            energy: Math.floor(this.energy),
+            energy: energyPercent + '%',
             foodCollected: this.foodCollected,
-            fedBrood: this.fedBrood ? 'Yes' : 'No',
+            fedBrood: this.broodFedCount > 0 ? `Sí (${this.broodFedCount})` : 'No',
             lifespan: Math.floor(this.lifespan) + 's',
-            corpsesCollected: this.corpsesCollected
+            corpsesCollected: this.corpsesCollected,
+            events: this.events
         };
     }
 
@@ -1030,6 +1157,8 @@ class Ant {
     // ============================================================================
     
     die() {
+        this.health = 0;
+        this.energy = 0;
         // Remove from colony
         this.colony.removeAnt(this);
 

@@ -179,8 +179,9 @@ class Termite {
                 this.scene.colony.foodStorage = Math.max(0, this.scene.colony.foodStorage - this.damage);
                 this.attackCooldown = this.attackCooldownTime;
             } else if (this.state === 'attacking_ant' && this.target) {
-                this.target.energy = Math.max(0, this.target.energy - this.damage);
-                if (this.target.energy <= 0) {
+                this.target.health = Math.max(0, this.target.health - this.damage * 0.9);
+                this.target.energy = Math.max(0, this.target.energy - this.damage * 0.5);
+                if (this.target.health <= 0) {
                     this.target.die();
                 }
                 this.attackCooldown = this.attackCooldownTime;

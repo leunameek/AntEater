@@ -48,13 +48,13 @@ class TerrainSystem {
                 let color;
                 switch (terrain.type) {
                     case 'grass':
-                        color = 0x228B22; // Forest green
+                        color = 0x4F7F4F; // muted green
                         break;
                     case 'dry_soil':
-                        color = 0xDEB887; // Burlywood
+                        color = 0xD2B48C; // softer tan
                         break;
                     case 'mud':
-                        color = 0x8B4513; // Saddle brown
+                        color = 0x7A5233; // muted brown
                         break;
                 }
 
@@ -115,9 +115,10 @@ class AntColonyGame extends Phaser.Scene {
         this.colony = null;
         this.foodManager = null;
         this.pheromoneSystem = null;
+        this.obstacleSystem = null;
 
         // Simulation parameters
-        this.antCount = 50;
+        this.antCount = 50; // Target ants for initial wave
         this.foodCount = 8; // Increased food count for better spread
         this.pheromoneDecay = 0.005;
         this.simulationSpeed = 1.0;
@@ -125,7 +126,8 @@ class AntColonyGame extends Phaser.Scene {
         // Initial spawning
         this.initialAntsToSpawn = 0;
         this.initialSpawnTimer = 0;
-        this.initialSpawnInterval = 2000; // Spawn one ant every 2 seconds
+        this.initialSpawnInterval = 2000; // Slightly slower batch cadence
+        this.initialSpawnBatchSize = 4; // Spawn in smaller groups until target reached
 
 
         // Random events
@@ -160,18 +162,15 @@ class AntColonyGame extends Phaser.Scene {
     }
 
     init(data) {
-        if (window.initialAntCount) {
-            this.antCount = window.initialAntCount;
-        }
+        // Forced to fixed 50 initial ants; batches handle gradual spawning
+        this.antCount = 50;
     }
     
     preload() {
         this.load.atlas('ant_sprites', 'assets/sprites/ant_sprites.png', 'assets/sprites/ant_sprites.json');
         
-        // Load food sprites
-        this.load.image('hoja', 'assets/sprites/Hoja.png');
-        this.load.image('manzana', 'assets/sprites/Manzana.png');
-        this.load.image('pan', 'assets/sprites/Pan.png');
+        // Load food sprites (4 stages for each food type)
+        FoodSource.preloadAssets(this);
     }
     
     create() {
@@ -193,10 +192,15 @@ class AntColonyGame extends Phaser.Scene {
         this.pheromoneSystem = new PheromoneSystem(this);
         this.foodManager = new FoodManager(this);
         this.puddleSystem = new PuddleSystem(this);
+        this.obstacleSystem = new ObstacleSystem(this);
         this.colony = new Colony(this, worldWidth / 2, worldHeight / 2);
 
         // Create initial food sources
         this.foodManager.createRandomFoodSources(this.foodCount, worldWidth, worldHeight);
+
+        // Create obstacles (rocks/sticks)
+        const obstacleCount = Math.max(10, Math.floor((worldWidth + worldHeight) / 300)); // scale with map size
+        this.obstacleSystem.spawnRandomObstacles(obstacleCount, worldWidth, worldHeight);
 
         // Create initial puddles
         this.puddleSystem.spawnRandomPuddles(worldWidth, worldHeight, 3);
@@ -221,7 +225,8 @@ class AntColonyGame extends Phaser.Scene {
     }
     
     spawnInitialAnts() {
-        this.initialAntsToSpawn = this.antCount;
+        this.initialAntsToSpawn = 50; // Always target 50 initial ants before natural reproduction
+        this.initialSpawnTimer = 0;
     }
     
     setupUIControls() {
@@ -509,8 +514,19 @@ class AntColonyGame extends Phaser.Scene {
         if (this.initialAntsToSpawn > 0) {
             this.initialSpawnTimer += delta;
             if (this.initialSpawnTimer >= this.initialSpawnInterval) {
-                this.colony.spawnAnt();
-                this.initialAntsToSpawn--;
+                let spawnedThisBatch = 0;
+                const batchSize = Math.min(this.initialSpawnBatchSize, this.initialAntsToSpawn);
+                while (spawnedThisBatch < batchSize) {
+                    const newAnt = this.colony.spawnAnt();
+                    if (newAnt) {
+                        this.initialAntsToSpawn--;
+                        spawnedThisBatch++;
+                    } else {
+                        // Not enough food or population cap hit; stop trying
+                        this.initialAntsToSpawn = 0;
+                        break;
+                    }
+                }
                 this.initialSpawnTimer = 0;
             }
         }
@@ -557,37 +573,12 @@ class AntColonyGame extends Phaser.Scene {
         // Handle random events
         this.updateRandomEvents(time, delta);
 
-        // Update camera to follow selected ant if following is active
-        this.updateCameraFollow(time, delta);
-        
-        // Check if followed ant is still alive
+        // Update camera follow disabled (no automatic camera follow)
         this.checkFollowedAntStatus();
     }
 
     updateCameraFollow(time, delta) {
-        // Smooth camera following
-        if (this.followingAnt && this.followingAnt.isAlive()) {
-            const antX = this.followingAnt.sprite.x;
-            const antY = this.followingAnt.sprite.y;
-            
-            // Smooth camera movement (lerp for smooth following)
-            const lerpSpeed = 0.05; // Lower = smoother, higher = faster response
-            const currentCenterX = this.cameras.main.scrollX + this.cameras.main.width / 2 / this.cameras.main.zoom;
-            const currentCenterY = this.cameras.main.scrollY + this.cameras.main.height / 2 / this.cameras.main.zoom;
-            
-            const targetCenterX = antX;
-            const targetCenterY = antY;
-            
-            // Calculate new camera center with smooth interpolation
-            const newCenterX = Phaser.Math.Linear(currentCenterX, targetCenterX, lerpSpeed);
-            const newCenterY = Phaser.Math.Linear(currentCenterY, targetCenterY, lerpSpeed);
-            
-            // Set camera to follow the ant
-            this.cameras.main.centerOn(newCenterX, newCenterY);
-            
-            // Keep camera within bounds while following
-            this.constrainCameraToBounds();
-        }
+        // Disabled: camera no longer follows ants automatically
     }
 
 
@@ -676,6 +667,7 @@ class AntColonyGame extends Phaser.Scene {
         this.colony = new Colony(this, width / 2, height / 2);
         this.foodManager.createRandomFoodSources(this.foodCount, width, height);
         this.puddleSystem.spawnRandomPuddles(width, height, 3);
+        this.obstacleSystem.spawnRandomObstacles(Math.max(10, Math.floor((width + height) / 300)), width, height);
 
         // Spawn new ants
         this.spawnInitialAnts();
@@ -695,11 +687,10 @@ class AntColonyGame extends Phaser.Scene {
     
     // Method to add obstacles
     addObstacle(x, y, width, height) {
-        const obstacle = this.add.rectangle(x, y, width, height, 0x8B4513);
-        this.physics.add.existing(obstacle, true); // true = static body
-        
-        // Make ants avoid obstacles
-        this.physics.add.collider(this.colony.ants.map(ant => ant.sprite), obstacle);
+        if (!this.obstacleSystem) {
+            this.obstacleSystem = new ObstacleSystem(this);
+        }
+        this.obstacleSystem.createObstacle(x, y, width, height);
     }
     
     // Method to create a more complex environment
@@ -724,8 +715,7 @@ class AntColonyGame extends Phaser.Scene {
         for (let i = 0; i < numSources; i++) {
             const x = Math.random() * (width - 100) + 50;
             const y = Math.random() * (height - 100) + 50;
-            const amount = Math.floor(Math.random() * 100) + 50; // 50-150 food
-            this.foodManager.createFoodSource(x, y, amount);
+            this.foodManager.createFoodSource(x, y, 100);
         }
     }
 
@@ -775,20 +765,31 @@ class AntColonyGame extends Phaser.Scene {
         const fedBroodEl = document.getElementById('ant-fed-brood');
         const lifespanEl = document.getElementById('ant-lifespan');
         const corpsesCollectedEl = document.getElementById('ant-corpses-collected');
+        const eventsEl = document.getElementById('ant-events');
         const followBtn = document.getElementById('follow-ant-btn');
 
+        const roleTranslations = {
+            worker: 'obrera',
+            soldier: 'soldado',
+            scout: 'exploradora',
+            forager: 'recolectora',
+            nurse: 'nodriza',
+            queen: 'reina'
+        };
+
         idEl.textContent = `ID: ${stats.id}`;
-        roleEl.textContent = `Role: ${stats.role}`;
-        healthEl.textContent = `Health: ${stats.health}`;
-        statusEl.textContent = `Status: ${stats.status}`;
-        energyEl.textContent = `Energy: ${stats.energy}`;
-        foodCollectedEl.textContent = `Food Collected: ${stats.foodCollected}`;
-        fedBroodEl.textContent = `Fed Brood: ${stats.fedBrood}`;
-        lifespanEl.textContent = `Lifespan: ${stats.lifespan}`;
-        corpsesCollectedEl.textContent = `Corpses Collected: ${stats.corpsesCollected}`;
+        roleEl.textContent = `Rol: ${roleTranslations[stats.role] || stats.role}`;
+        healthEl.textContent = `Salud: ${stats.health}`;
+        statusEl.textContent = `Estado: ${stats.status}`;
+        energyEl.textContent = `Energía: ${stats.energy}`;
+        foodCollectedEl.textContent = `Comida Recolectada: ${stats.foodCollected}`;
+        fedBroodEl.textContent = `Alimentó crías: ${stats.fedBrood}`;
+        lifespanEl.textContent = `Tiempo de vida: ${stats.lifespan}`;
+        corpsesCollectedEl.textContent = `Cadáveres recolectados: ${stats.corpsesCollected}`;
+        eventsEl.textContent = `Eventos:\n${stats.events && stats.events.length ? stats.events.join(' | ') : 'ninguno'}`;
 
         // Update follow button text
-        followBtn.textContent = ant.isBeingFollowed ? 'Stop Following' : 'Follow Ant';
+        followBtn.textContent = ant.isBeingFollowed ? 'Stop Highlight' : 'Highlight Ant';
     }
 
     clearSelection() {
@@ -821,7 +822,7 @@ class AntColonyGame extends Phaser.Scene {
                         this.startFollowingAnt(this.selectedAnt);
                         this.selectedAnt.startFollowing();
                     }
-                    followBtn.textContent = this.selectedAnt.isBeingFollowed ? 'Stop Following' : 'Follow Ant';
+                    followBtn.textContent = this.selectedAnt.isBeingFollowed ? 'Stop Highlight' : 'Highlight Ant';
                 }
             });
         }
@@ -833,11 +834,8 @@ class AntColonyGame extends Phaser.Scene {
         // Show following indicator
         this.showFollowingIndicator(ant);
         
-        // Immediately center camera on the ant
-        this.cameras.main.centerOn(ant.sprite.x, ant.sprite.y);
-        this.constrainCameraToBounds();
-        
-        console.log(`Camera now following ant ${ant.id}`);
+        // Do not move or lock the camera
+        console.log(`Highlighting ant ${ant.id}`);
     }
 
     stopFollowingAnt() {
@@ -897,7 +895,7 @@ class AntColonyGame extends Phaser.Scene {
             // Update UI
             const followBtn = document.getElementById('follow-ant-btn');
             if (followBtn) {
-                followBtn.textContent = 'Follow Ant';
+                followBtn.textContent = 'Highlight Ant';
             }
         }
     }

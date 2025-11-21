@@ -79,6 +79,14 @@ class Colony {
         this.maxPopulation = 200;
         this.hasQueen = false;
         this.roles = ['worker', 'soldier', 'scout', 'forager', 'nurse'];
+        this.roleWeights = {
+            worker: 0.35,
+            forager: 0.25,
+            scout: 0.15,
+            nurse: 0.2,
+            soldier: 0.05
+        };
+        this.minimumNurseRatio = 0.15; // Keep at least 15% nurses visible on the surface
         
         // Create colony visual
         this.sprite = scene.add.circle(x, y, 60, 0xFF6347);
@@ -139,14 +147,8 @@ class Colony {
         if (this.ants.length >= this.maxPopulation) return null;
         if (this.foodStorage < this.spawnCost) return null;
 
-        // Assign role
-        let role;
-        if (!this.hasQueen && Math.random() < 0.05) { // 5% chance for queen if not present
-            role = 'queen';
-            this.hasQueen = true;
-        } else {
-            role = this.roles[Math.floor(Math.random() * this.roles.length)];
-        }
+        // Assign role with weighting and minimum nurse ratio
+        const role = this.selectRoleForSpawn();
         
         // Spend food to spawn ant
         this.foodStorage -= this.spawnCost;
@@ -164,6 +166,46 @@ class Colony {
         this.createSpawnEffect(spawnX, spawnY);
         
         return ant;
+    }
+
+    roleCounts() {
+        const counts = { worker: 0, soldier: 0, scout: 0, forager: 0, nurse: 0, queen: this.hasQueen ? 1 : 0 };
+        for (const ant of this.ants) {
+            if (counts[ant.role] !== undefined) {
+                counts[ant.role]++;
+            }
+        }
+        return counts;
+    }
+
+    selectRoleForSpawn() {
+        // Handle queen creation separately
+        if (!this.hasQueen && Math.random() < 0.05) {
+            this.hasQueen = true;
+            return 'queen';
+        }
+
+        const counts = this.roleCounts();
+        const totalSurface = Math.max(1, this.ants.length);
+
+        // Force nurses if below minimum ratio
+        const nurseRatio = counts.nurse / totalSurface;
+        if (nurseRatio < this.minimumNurseRatio) {
+            return 'nurse';
+        }
+
+        // Weighted random selection for other roles
+        const roll = Math.random();
+        let cumulative = 0;
+        for (const role of this.roles) {
+            cumulative += this.roleWeights[role] || 0;
+            if (roll <= cumulative) {
+                return role;
+            }
+        }
+
+        // Fallback
+        return 'worker';
     }
     
     createSpawnEffect(x, y) {
@@ -316,6 +358,16 @@ class Colony {
             following_trail: this.getAntsByState('following_trail').length
         };
         
+        const survivalEfficiency = this.totalAntsBorn > 0 ? (this.totalAntsBorn - this.totalAntsDied) / this.totalAntsBorn : 1;
+        const foodFactor =
+            this.foodStorage < 50 ? 0.6 :
+            this.foodStorage < 100 ? 0.8 :
+            this.foodStorage < 200 ? 1.0 :
+            this.foodStorage < 400 ? 1.05 :
+            1.15;
+        const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+        const efficiency = clamp(survivalEfficiency * foodFactor, 0.3, 1.2);
+
         return {
             population: this.population,
             maxPopulation: this.maxPopulation,
@@ -324,7 +376,7 @@ class Colony {
             totalAntsDied: this.totalAntsDied,
             generation: this.generation,
             antStates: states,
-            efficiency: this.totalAntsBorn > 0 ? (this.totalAntsBorn - this.totalAntsDied) / this.totalAntsBorn : 1,
+            efficiency,
             reproductionStages: this.reproductionStages,
             nuptialFlightActive: this.nuptialFlightActive
         };

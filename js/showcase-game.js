@@ -64,13 +64,13 @@ class ShowcaseTerrainSystem {
                 let color;
                 switch (terrain.type) {
                     case 'grass':
-                        color = 0x228B22; // Forest green
+                        color = 0x4F7F4F; // muted green
                         break;
                     case 'dry_soil':
-                        color = 0xDEB887; // Burlywood
+                        color = 0xD2B48C; // softer tan
                         break;
                     case 'mud':
-                        color = 0x8B4513; // Saddle brown
+                        color = 0x7A5233; // muted brown
                         break;
                 }
 
@@ -223,6 +223,7 @@ class AntBehaviorShowcase extends Phaser.Scene {
         this.colony = null;
         this.foodManager = null;
         this.pheromoneSystem = null;
+        this.obstacleSystem = null;
 
         // Showcase parameters
         this.antCount = 5;
@@ -259,6 +260,7 @@ class AntBehaviorShowcase extends Phaser.Scene {
 
     preload() {
         this.load.atlas('ant_sprites', 'assets/sprites/ant_sprites.png', 'assets/sprites/ant_sprites.json');
+        FoodSource.preloadAssets(this);
     }
 
     create() {
@@ -272,12 +274,17 @@ class AntBehaviorShowcase extends Phaser.Scene {
         this.terrainSystem = new ShowcaseTerrainSystem(this, this.worldWidth, this.worldHeight, this.environmentType);
         this.pheromoneSystem = new PheromoneSystem(this);
         this.foodManager = new FoodManager(this);
+        this.obstacleSystem = new ObstacleSystem(this);
         this.colony = new ShowcaseColony(this, this.worldWidth / 2, this.worldHeight / 2);
 
         // Create initial food sources if enabled
         if (this.foodEnabled) {
             this.foodManager.createRandomFoodSources(3, this.worldWidth, this.worldHeight);
         }
+
+        // Create obstacles for the showcase area
+        const obstacleCount = Math.max(6, Math.floor((this.worldWidth + this.worldHeight) / 200));
+        this.obstacleSystem.spawnRandomObstacles(obstacleCount, this.worldWidth, this.worldHeight);
 
         // Create initial puddles if enabled
         if (this.puddlesEnabled) {
@@ -448,10 +455,12 @@ class AntBehaviorShowcase extends Phaser.Scene {
         document.getElementById('showcase-food-collected').textContent = Math.floor(foodStats.totalFoodCollected);
         document.getElementById('showcase-total-ants').textContent = colonyStats.totalAntsBorn;
 
-        // Calculate average energy
+        // Calculate average energy (as percent of max) for realism
         const ants = this.colony.ants.filter(ant => ant.isAlive());
         const avgEnergy = ants.length > 0 ? 
-            Math.floor(ants.reduce((sum, ant) => sum + ant.energy, 0) / ants.length) : 0;
+            Math.floor(
+                ants.reduce((sum, ant) => sum + (ant.energy / ant.maxEnergy) * 100, 0) / ants.length
+            ) : 0;
         document.getElementById('showcase-avg-energy').textContent = avgEnergy;
 
         // Update selected ant stats
@@ -463,15 +472,24 @@ class AntBehaviorShowcase extends Phaser.Scene {
     updateSelectedAntStats() {
         const ant = this.selectedAnt;
         const stats = ant.getStats();
+
+        const roleTranslations = {
+            worker: 'obrera',
+            soldier: 'soldado',
+            scout: 'exploradora',
+            forager: 'recolectora',
+            nurse: 'nodriza',
+            queen: 'reina'
+        };
         
         document.getElementById('showcase-ant-id').textContent = `ID: ${stats.id}`;
-        document.getElementById('showcase-ant-role').textContent = `Role: ${stats.role}`;
-        document.getElementById('showcase-ant-state').textContent = `State: ${ant.state}`;
-        document.getElementById('showcase-ant-energy').textContent = `Energy: ${Math.floor(ant.energy)}`;
-        document.getElementById('showcase-ant-food').textContent = `Food Carried: ${ant.foodAmount}`;
+        document.getElementById('showcase-ant-role').textContent = `Rol: ${roleTranslations[stats.role] || stats.role}`;
+        document.getElementById('showcase-ant-state').textContent = `Estado: ${ant.state}`;
+        document.getElementById('showcase-ant-energy').textContent = `Energía: ${Math.floor((ant.energy / ant.maxEnergy) * 100)}%`;
+        document.getElementById('showcase-ant-food').textContent = `Comida cargada: ${ant.foodAmount}`;
         
-        const healthPercent = Math.floor((ant.energy / ant.maxEnergy) * 100);
-        document.getElementById('showcase-ant-health').textContent = `Health: ${healthPercent}%`;
+        const healthPercent = Math.floor((ant.health / ant.maxHealth) * 100);
+        document.getElementById('showcase-ant-health').textContent = `Salud: ${healthPercent}%`;
     }
 
     selectAnt(ant) {
@@ -538,6 +556,7 @@ class AntBehaviorShowcase extends Phaser.Scene {
         if (this.foodManager) this.foodManager.clear();
         if (this.pheromoneSystem) this.pheromoneSystem.clear();
         if (this.puddleSystem) this.puddleSystem.clear();
+        if (this.obstacleSystem) this.obstacleSystem.clear();
 
         // Reset selected ant
         this.selectedAnt = null;
@@ -546,6 +565,7 @@ class AntBehaviorShowcase extends Phaser.Scene {
         // Recreate systems with current settings
         this.pheromoneSystem = new PheromoneSystem(this);
         this.foodManager = new FoodManager(this);
+        this.obstacleSystem = new ObstacleSystem(this);
         this.colony = new ShowcaseColony(this, this.worldWidth / 2, this.worldHeight / 2);
 
         // Spawn new ants after creating colony (initialSpawnDone will be set by spawnInitialAnts)
@@ -559,6 +579,9 @@ class AntBehaviorShowcase extends Phaser.Scene {
             this.puddleSystem = new PuddleSystem(this);
             this.puddleSystem.spawnRandomPuddles(this.worldWidth, this.worldHeight, 2);
         }
+
+        const obstacleCount = Math.max(6, Math.floor((this.worldWidth + this.worldHeight) / 200));
+        this.obstacleSystem.spawnRandomObstacles(obstacleCount, this.worldWidth, this.worldHeight);
 
         // Reset button states
         document.getElementById('showcase-toggle-puddles').style.background = 
